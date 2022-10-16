@@ -1,0 +1,13 @@
+PATCH /v1/settings/application
+{
+    "callback_persist": true,
+    "sent_status": true,  // Either use this or webhooks.message.sent, but webhooks.message.sent property is preferred as sent_status will be deprecated soon
+    "webhooks": { 
+    	"url": "bot.thetrashcan.me", 
+        "message": {     // Available on v2.41.2 and above
+        	"sent": false,
+        	"delivered": true,
+        	"read": false
+       },
+    }
+}
