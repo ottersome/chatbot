@@ -1,0 +1,19 @@
+version: '3.1'
+services:
+  ml_container:
+    build:
+      context: .
+      args:
+        USER: ${USER}
+    volumes:
+      - '../models:/home/${USER}/models'
+    tty: true
+    ports:
+      - "42022:22"
+    deploy:
+      resources: 
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
