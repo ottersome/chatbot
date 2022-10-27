@@ -1,0 +1,22 @@
+{
+  "configurations": {
+    "Runny: Launch": {
+      "adapter": "debugpy",
+      "filetypes": [ "python" ],
+      "configuration": {
+        "name": "Runny: Launch",
+        "type": "python",
+        "request": "launch",
+        "cwd": "~/Projects/StochasticProcesses/",
+        "python": "~/miniconda3/envs/py38/bin/python",
+        "stopOnEntry": true,
+        "console": "externalTerminal",
+        "debugOptions": [],
+//        "args" : ["1000","1","1000"],
+        //"args" : ["100","1.5","0.5","100","0"],
+        //"program": "~/Projects/StochasticProcesses/main.py"
+        "program": "~/Projects/Huginns/Chatbot/models/electra/DownStreamElectra.py"
+      }
+    }
+  }
+}
