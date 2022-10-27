@@ -1,43 +1,7 @@
 from transformers import ElectraModel, ElectraConfig, ElectraTokenizerFast, ElectraForPretraining
 from AR_ElectraDialogModel import *
-
-c = MyConfig({
-    'device':'cuda:0',
-    'start':0,
-    'end': 10,
-
-    'pretrained_checkpoint': 'vanilla_11081_100.0%pth',
-    'seeds':None,
-
-    'weight_decay': 0,
-    'adam_bias_correction': False,
-    'xavier_reinited_outlayer': True,
-    'schedule': 'original_linear',
-    'original_lr_layer_decays': True,
-    'double_unordered': True,
-    
-    # whether to do finetune or test
-    'do_finetune': True, # True -> do finetune ; False -> do test
-    # finetuning checkpoint for testing. These will become "ckp_dir/{task}_{group_name}_{th_run}.pth"
-    'th_run': { 'qqp': 7, 'qnli': 5,
-               'mrpc': 7, 'mnli': 2, 'ax': 2,
-               'sst2': 3, 'rte': 7,  'wnli': 0, 
-               'cola': 1, 'stsb': 8,  
-               },
-
-    'size': 'small',
-    'wsc_trick': False,
-
-    'num_workers': 3,
-    'my_model': False, # True only for my personal research
-    'logger': 'wandb',
-    'group_name': None, # the name of represents these runs
-    # None: use name of checkpoint.
-
-    # Fine Tuning
-    'hidden_size': 64
-
-    })
+import argparse
+import yaml
 
 def get_model():
     discriminator = ElectraForPreTraining.from_pretrained("google/electra-small-discriminator")
@@ -61,16 +25,39 @@ def get_corpus(location,interaction_maxlen):
     print("AMount of Setences")
     return pairs
 
+def yaml_config(config_yaml : str) -> {}:
+    with open(config_yaml) as f:
+        config = yaml.load(f, Loader=yaml.f)
+    print(config)
+
+
+def cmd_config(parser: argparse.ArgumentParser()) -> {}:
+    parser.add_argument("-h",
+            help="Hidden Vector Size",
+            type=int
+            )
+    return vars(parser)
+
+
 if __name__ == "__main__":
     # Load the Base Model up
-    discriminator,tokenizer = get_model()
+    discriminator, tokenizer = get_model()
+
+    # Parse and get Config
+    parser = argparse.ArgumentParser("Electra for AutoRegressive Dialog")
+    config = {'yaml_path':'./configs/finetune.py'}
+    config.update(yaml_config(config['yaml_file']))
+    config.update(cmd_config(parser))
+    print(config)
+    exit
+
+    
 
     # Feed Model to our Wrapper
     AR_DialogModel = AutoRegressiveDialogModel(discriminator)
 
     # Load Corpus
-    corpus
+    corpus = get_corpus()
 
-
-
+    # 
 

@@ -1,0 +1,34 @@
+device:'cuda:0'
+start:0
+end: 10
+
+pretrained_checkpoint: 'vanilla_11081_100.0%pth'
+seeds:None
+
+weight_decay: 0
+adam_bias_correction: False
+xavier_reinited_outlayer: True
+schedule: 'original_linear'
+original_lr_layer_decays: True
+double_unordered: True
+
+# whether to do finetune or test
+do_finetune: True # True -> do finetune ; False -> do test
+# finetuning checkpoint for testing. These will become "ckp_dir/{task}_{group_name}_{th_run}.pth"
+# 'th_run': { 'qqp': 7 'qnli': 5
+            # 'mrpc': 7 'mnli': 2 'ax': 2
+            # 'sst2': 3 'rte': 7  'wnli': 0 
+            # 'cola': 1 'stsb': 8  
+            # }
+
+size: 'small'
+wsc_trick: False
+
+num_workers: 3
+my_model: False # True only for my personal research
+logger: 'wandb'
+group_name: None # the name of represents these runs
+# None: use name of checkpoint.
+
+# Fine Tuning
+hidden_size: 64
