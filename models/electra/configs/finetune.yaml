@@ -1,9 +1,9 @@
-device:'cuda:0'
-start:0
+device: cuda:0
+start: 0
 end: 10
 
 pretrained_checkpoint: 'vanilla_11081_100.0%pth'
-seeds:None
+seeds: 0
 
 weight_decay: 0
 adam_bias_correction: False
@@ -27,7 +27,7 @@ wsc_trick: False
 num_workers: 3
 my_model: False # True only for my personal research
 logger: 'wandb'
-group_name: None # the name of represents these runs
+group_name: 0 # the name of represents these runs
 # None: use name of checkpoint.
 
 # Fine Tuning

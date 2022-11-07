@@ -1,4 +1,4 @@
-from transformers import ElectraModel, ElectraConfig, ElectraTokenizerFast, ElectraForPretraining
+from transformers import ElectraModel, ElectraConfig, ElectraTokenizerFast, ElectraForPreTraining
 from AR_ElectraDialogModel import *
 import argparse
 import yaml
@@ -27,14 +27,16 @@ def get_corpus(location,interaction_maxlen):
 
 def yaml_config(config_yaml : str) -> {}:
     with open(config_yaml) as f:
-        config = yaml.load(f, Loader=yaml.f)
-    print(config)
+        config = yaml.load(f, Loader=yaml.FullLoader)
+    return config
 
 
 def cmd_config(parser: argparse.ArgumentParser()) -> {}:
-    parser.add_argument("-h",
+    parser.add_argument("--hiddensize",
             help="Hidden Vector Size",
-            type=int
+            dest="hiddensize",
+            default=64,
+            type=int,
             )
     return vars(parser)
 
@@ -45,13 +47,11 @@ if __name__ == "__main__":
 
     # Parse and get Config
     parser = argparse.ArgumentParser("Electra for AutoRegressive Dialog")
-    config = {'yaml_path':'./configs/finetune.py'}
-    config.update(yaml_config(config['yaml_file']))
+    config = {'yaml_path':'./configs/finetune.yaml'}
+    config.update(yaml_config(config['yaml_path']))
     config.update(cmd_config(parser))
     print(config)
     exit
-
-    
 
     # Feed Model to our Wrapper
     AR_DialogModel = AutoRegressiveDialogModel(discriminator)
@@ -59,5 +59,6 @@ if __name__ == "__main__":
     # Load Corpus
     corpus = get_corpus()
 
-    # 
+    # Fine Tune
+    
 

@@ -1,0 +1,3 @@
+[submodule "models/electra/models/electra/electra_repo"]
+	path = models/electra/models/electra/electra_repo
+	url = https://github.com/google-research/electra
