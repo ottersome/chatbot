@@ -1,0 +1,21 @@
+{
+  "configurations": {
+    "Runny: Launch": {
+      "adapter": "debugpy",
+      "filetypes": [ "python" ],
+      "configuration": {
+        "name": "Runny: Launch",
+        "console": "integratedTerminal",
+        "type": "python",
+        "request": "launch",
+        "cwd": "./",
+        "python": "~/miniforge3/envs/rs39/bin/python",
+        "stopOnEntry": true,
+        "console": "externalTerminal",
+        "debugOptions": [],
+        "args" : ["--ds_path","./RickAndMortyScripts.csv","--device","mps"],
+        "program": "./trainer_entry.py"
+      }
+    }
+  }
+}
