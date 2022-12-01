@@ -74,7 +74,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
 
     #Start Summary Writter
     # Pad Sequence
-    batch_size = 8 # Lets leave it at that for now 
+    batch_size = 2 # Lets leave it at that for now 
     def collate(examples: List[torch.Tensor]):
         if tokenizer._pad_token is None:
             return pad_sequence(examples, batch_first=True)
@@ -127,7 +127,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
             labels = labels.to(args.device)
 
             model.train()
-            outputs  = model(inputs)#,labels=labels)
+            outputs  = model(inputs,labels=labels)
             loss = outputs[0]
 
             loss.backward()
