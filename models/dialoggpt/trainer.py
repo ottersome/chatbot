@@ -82,7 +82,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
 
     # Sample from training dataset
     train_sampler = RandomSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset,sampler=train_sampler, batch_size=batch_size, collate_fn=collate, drop_last=True)
+    train_dataloader = DataLoader(train_dataset,sampler=train_sampler, batch_size=8, collate_fn=collate, drop_last=True)
 
     # Start Model and resize token embeddings
     model.resize_token_embeddings(len(tokenizer))
@@ -120,6 +120,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
         for step, batch in enumerate(within_epoch_iterator):
             inputs, labels = (batch, batch)
 
+            print("At step: ")
             # Skip Long Examples
             if inputs.shape[1] > 1024: continue
 
