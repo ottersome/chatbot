@@ -31,6 +31,12 @@ from transformers import (
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
+from utils import set_seed
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    from tensorboardX import SummaryWriter
 
 
 # try:
@@ -72,6 +78,9 @@ def process_datasets(path,context_length):
 
 def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
 
+    # For main gpu 
+    tb_writer = SummaryWriter()
+
     #Start Summary Writter
     # Pad Sequence
     batch_size = 2 # Lets leave it at that for now 
@@ -95,7 +104,8 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
             {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
         ]
 
-    total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
+    #total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
+    total_training_steps = len(train_dataloader) // 1 * args.num_train_epochs
 
     # Chose Adam as optimizer
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
@@ -111,16 +121,34 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
         # Check for model checkpoint
         # Start with checkpointif available
         # Start Training Itaration
+
+    logger.info("***** Started training *****")
+    logger.info("  Num examples = %d", len(train_dataset))
+    logger.info("  Num Epochs = %d", args.num_train_epochs)
+    #logger.info("  Instantaneous batch size per GPU = %d", args.per_gpu_train_batch_size)
+    logger.info(
+        "  Total train batch size (w. parallel, distributed & accumulation) = %d",
+        args.batch_size
+        # * args.gradient_accumulation_steps
+        # * (torch.distributed.get_world_size() if args.local_rank != -1 else 1),
+    )
+    logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
+    logger.info("  Total optimization steps = %d", total_training_steps)
+
+    # TODO load checkpoints
+
     model.zero_grad() 
-    train_iterator = trange(0,int(50), desc="Epoch")
+    train_iterator = trange(0,int(rgs.num_train_epochs),desc="Epoch")
     global_step = 0
-    tr_loss = 0
+    logging_loss, tr_loss = 0.0,0.0
+    set_seed(args.seed)
+
     for _ in train_iterator:
         within_epoch_iterator = tqdm(train_dataloader, desc="Iteration")
         for step, batch in enumerate(within_epoch_iterator):
             inputs, labels = (batch, batch)
 
-            print("At step: ")
+            print("At step: ", step)
             # Skip Long Examples
             if inputs.shape[1] > 1024: continue
 
@@ -135,11 +163,71 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
 
             tr_loss += loss.item()
 
+            # Here we might use accumulation steps
             optimizer.step()
             scheduler.step()
             model.zero_grad()
+            global_step+=1
+
+            if global_step % args.logging_steps:
+                tb_writer.add_scalar("lr", scheduler.get_lr()[0],global_step)
+                tb_writer.add_scalar("loss", (tr_loss - logging_loss)/args.logging_steps)
+                
+                logging_loss = tr_loss
+            if global_step % args.checkpoint_interval:
+                output_dir = os.path.join(args.output_dir,"{}-{}".format("chkpnt",global_step))
+                os.makedirs(output_dir, exist_ok=True)
+                model_to_save = model
+
+                model_to_save.save_pretrained(output_dir)
+                tokenizer.save_pretrained(output_dir)
+                torch.save(args, os.path.join(output_dir,"training_args.bin"))
+
+                torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
+                torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
+                logger.info("Saving optimizer and scheduler states to %s", output_dir)
+
+
+            if args.max_steps > 0 and global_step > args.max_steps:
+                epoch_iterator.close()
+                break
+        if args.max_steps > 0 and global_step > args.max_steps:
+            train_iterator.close()
+            break
+    tb_writer.close()
+    return global_step, tr_loss /global_step
+
+
 
         #
-def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, df_trn, df_val, prefix ="") -> Dict:
-    pass
+def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, eval_dataset, df_trn, df_val, prefix ="") -> Dict:
+    # Create output dir
+    eval_output_dir = args.output_dir
+    os.makedirs(eval_output_dir, exist_ok=True)
 
+    def collate(examples: List[torch.Tensor]):
+        if tokenizer._pad_token is None:
+            return pad_sequence(examples, batch_first=True)
+        return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
+
+    eval_sampler = SequentialSampler(eval_dataset)
+    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.batch_size, collate_fn=collate, drop_last=True)
+
+    # Load the evaluation data set
+    # Set teh evaluation size
+    #
+    # Do colation 
+    # Crete Sampelr
+    # Create Data Loader
+    #
+    # Log Some Stuff
+    #
+    # Set the model to evaluation mode
+    #
+    # Go through the batch 
+    #
+    # eval_loss /= evaluation_steps
+    # prepelexity = torch.exp(torch.tensor(eval_loss))
+    # result = {"perplexity": perplexity}
+
+    # log_eval_file = os.path.join(e)

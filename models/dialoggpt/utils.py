@@ -1,6 +1,8 @@
 import argparse
 import os
+import numpy as np
 import pickle
+import random
 import torch
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
@@ -13,7 +15,11 @@ def parse_args():
                         type=bool)
     parser.add_argument("--batch_size",
                         dest='batch_size',
-                        default=64,
+                        default=512,
+                        type=int)
+    parser.add_argument("--gradient_accum_steps",
+                        dest='gradient_accumulation_steps',
+                        default=0,
                         type=int)
     parser.add_argument("--device",
                         dest='device',
@@ -23,6 +29,18 @@ def parse_args():
                         dest='dataset_path',
                         required=True,
                         help='Path to your dataset for fine-tuning',
+                        type=str)
+    parser.add_argument("--logging_steps",
+                        dest='logging_steps',
+                        default=1000,
+                        type=int)
+    parser.add_argument("--output_dir",
+                        dest='output_dir',
+                        default='./output/',
+                        type=str)
+    parser.add_argument("--checkpoint_interval",
+                        dest='checkpoint_interval',
+                        default=3500,
                         type=str)
     parser.add_argument("--model_type",
                         dest='model_type',
@@ -140,4 +158,9 @@ class DialogDataset(Dataset):
     def len(self):
         return len(self.examples)
 
-
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if(torch.cuda.device_count() > 0):
+        torch.cuda.manual_seed_all(seed)
