@@ -83,7 +83,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
 
     #Start Summary Writter
     # Pad Sequence
-    batch_size = 2 # Lets leave it at that for now 
+    batch_size = args.batch_size # Lets leave it at that for now 
     def collate(examples: List[torch.Tensor]):
         if tokenizer._pad_token is None:
             return pad_sequence(examples, batch_first=True)
@@ -91,7 +91,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
 
     # Sample from training dataset
     train_sampler = RandomSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset,sampler=train_sampler, batch_size=8, collate_fn=collate, drop_last=True)
+    train_dataloader = DataLoader(train_dataset,sampler=train_sampler, batch_size=batch_size, collate_fn=collate, drop_last=True)
 
     # Start Model and resize token embeddings
     model.resize_token_embeddings(len(tokenizer))
@@ -138,7 +138,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
     # TODO load checkpoints
 
     model.zero_grad() 
-    train_iterator = trange(0,int(rgs.num_train_epochs),desc="Epoch")
+    train_iterator = trange(0,int(args.num_train_epochs),desc="Epoch")
     global_step = 0
     logging_loss, tr_loss = 0.0,0.0
     set_seed(args.seed)
