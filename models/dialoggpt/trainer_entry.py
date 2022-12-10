@@ -16,9 +16,6 @@ from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampl
 from trainer import *
 from utils import *
 
-
-
-
 if __name__=='__main__':
     args = parse_args()
     device = torch.device(args.device)
