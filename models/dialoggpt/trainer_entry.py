@@ -25,11 +25,12 @@ if __name__=='__main__':
     # df_trn, df_tst = process_datasets(args.dataset_path, 7)
     df_trn, df_tst = prepare_discussion_dataset(args.dataset_path, 1024)
 
-    #Loading teh modles
+    #Loading the modles
     set_seed(args.seed)
     
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
                         datefmt="%m/%d/%Y %H:%M:%S",
+                        filename='training.log',
                         level=logging.INFO 
                         )
     print('Setting Up Tokenizers and (Possibly) PreTrained Models')
