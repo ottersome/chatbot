@@ -67,6 +67,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
         return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
 
     # Sample from training dataset
+    print(f"Size of training data set is {len(train_dataset)}")
     train_sampler = RandomSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset,sampler=train_sampler, batch_size=batch_size, collate_fn=collate, drop_last=True)
 
@@ -82,7 +83,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
         ]
 
     #total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
-    total_training_steps = len(train_dataloader) // 1 * args.num_train_epochs
+    total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
 
     # Chose Adam as optimizer
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
@@ -98,6 +99,13 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
         # Check for model checkpoint
         # Start with checkpointif available
         # Start Training Itaration
+
+    if args.fp_16:
+        try :
+            from apex import amp 
+        except ImportError:
+            raise ImportError("need to isntall apex for nvidia to use fp16 training. ")
+        model,optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
 
     logger.info("***** Started training *****")
     logger.info("  Num examples = %d", len(train_dataset))
@@ -120,6 +128,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
     logging_loss, tr_loss = 0.0,0.0
     set_seed(args.seed)
 
+
     for _ in train_iterator:
         within_epoch_iterator = tqdm(train_dataloader, desc="Iteration")
         for step, batch in enumerate(within_epoch_iterator):
@@ -138,7 +147,11 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
             outputs  = model(inputs,labels=labels)
             loss = outputs[0]
 
-            loss.backward()
+            if args.fp_16:
+                with amp.scale_loss(loss,optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else: 
+                loss.backward()
 
             tr_loss += loss.item()
 
@@ -148,33 +161,42 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
             model.zero_grad()
             global_step+=1
 
-            if global_step % args.logging_steps:
+            print(f'Total loss so far : {tr_loss/global_step}')
+
+            if global_step % args.logging_steps == 0:
                 tb_writer.add_scalar("lr", scheduler.get_lr()[0],global_step)
                 tb_writer.add_scalar("loss", (tr_loss - logging_loss)/args.logging_steps)
                 
                 logging_loss = tr_loss
-            if global_step % args.checkpoint_interval:
-                output_dir = os.path.join(args.output_dir,"{}-{}".format("chkpnt",global_step))
-                os.makedirs(output_dir, exist_ok=True)
-                model_to_save = model
-
-                model_to_save.save_pretrained(output_dir)
-                tokenizer.save_pretrained(output_dir)
-                torch.save(args, os.path.join(output_dir,"training_args.bin"))
-
-                torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
-                torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
-                logger.info("Saving optimizer and scheduler states to %s", output_dir)
-
 
             if args.max_steps > 0 and global_step > args.max_steps:
                 epoch_iterator.close()
                 break
+
+        #if global_step % args.checkpoint_interval == 0:
+        if True:
+            output_dir = os.path.join(args.output_dir,"{}-{}".format("chkpnt",global_step))
+            os.makedirs(output_dir, exist_ok=True)
+            model_to_save = model
+
+            model_to_save.save_pretrained(output_dir)
+            tokenizer.save_pretrained(output_dir)
+            torch.save(args, os.path.join(output_dir,"training_args.bin"))
+
+            torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
+            torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
+            print(f'Sving checkpoint at global step {global_step}')
+            logger.info("Saving optimizer and scheduler states to %s", output_dir)
+            logger.info("\tLoss foar this training epoch was:%f", tr_loss/global_step)
+
         if args.max_steps > 0 and global_step > args.max_steps:
+            print("global steps has overcome max steps")
             train_iterator.close()
             break
     tb_writer.close()
-    return global_step, tr_loss /global_step
+    avg_loss = tr_loss /global_step
+    print(f"Finished with training with global_step:{global_step} and average loss {avg_loss}")
+    return global_step, avg_loss
 
 
 
