@@ -24,11 +24,12 @@ if __name__=='__main__':
     print('Processing Dataset')
     df_trn, df_tst = process_datasets(args.dataset_path, 7)
 
-    #Loading teh modles
+    #Loading the modles
     set_seed(args.seed)
     
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
                         datefmt="%m/%d/%Y %H:%M:%S",
+                        filename='training.log',
                         level=logging.INFO 
                         )
     config = AutoConfig.from_pretrained(args.config_name, cache_dir=args.cache_dir)
