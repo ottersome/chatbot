@@ -1,3 +1,5 @@
+import torch
+
 from transformers import (
     MODEL_WITH_LM_HEAD_MAPPING,
     WEIGHTS_NAME,
