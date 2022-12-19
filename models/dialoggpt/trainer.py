@@ -11,7 +11,6 @@ import pandas as pd
 import numpy as np
 import torch
 
-from sklearn.model_selection import train_test_split
 
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
@@ -52,28 +51,6 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 # TODO we must think about changing the way we process these prompt-> reponses
 # I dont t like these proces of "adding context".
-def process_datasets(path,context_length):
-    # Load Data Set and Give it some Context
-    dataframe = pd.read_csv(path)
-
-    # contexted_rows = []
-    contexted_rows = [list(reversed(dataframe['line'][j-context_length-1:j].tolist()))  for j in range(context_length+1,len(dataframe))]
-
-    # Create New DataFrame with this structure
-    columns = ['reponse']
-    columns += ['context'+str(i+1) for i in range(0,context_length)]
-    dataframe = pd.DataFrame.from_records(contexted_rows,columns=columns)
-
-    trn_df, val_df = train_test_split(dataframe, test_size = 0.1)
-    # TODO: This conversation is a bit flawed since subsequent lines need not be from different characters
-    # It could be a line that follows a pause. Not to mention the fact the some conversations take place in different spaces and times
-    # Need better Dataset
-
-    print("Processing dataframe")
-    print(dataframe.head(2))
-
-    return trn_df, val_df
-    # Split into test and train
 
 
 def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
@@ -147,6 +124,8 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
         within_epoch_iterator = tqdm(train_dataloader, desc="Iteration")
         for step, batch in enumerate(within_epoch_iterator):
             inputs, labels = (batch, batch)
+            print("I will show you the input and the batch")
+            print(batch)
 
             print("At step: ", step)
             # Skip Long Examples

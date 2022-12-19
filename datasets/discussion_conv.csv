@@ -1,4 +1,4 @@
-Utterance Id,Article Id,Conversation Id,Sentence Tags,Character,Utterance
+utterance_id,article_id,conversation_id,sentence_tags,character,utterance
 1,1,1,Question,1,"Hey, did you hear about the report by Facebook's parent company about the use of spyware?"
 2,1,1,Observation,2,"Yeah, it's really concerning. It seems like surveillance-for-hire companies are constantly adapting and changing tactics in order to continue targeting people, including journalists and activists."
 3,1,1,Statement|Fact,1,"Definitely. And it's not just one company, either. The report named a few companies that were linked to Russia, Israel, and China that were using spyware to scrape Facebook and Instagram for private user information."
