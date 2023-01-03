@@ -142,6 +142,9 @@ def construct_dialog(row,tokenizer_of_choice: PreTrainedTokenizer):
         final_convo = []
     return final_convo
 
+def prepare_convo_dataset(path):
+    conv_df = pd.read_csv(path)
+
 def prepare_discussion_dataset(path,article_max_length=1024):
 
     art_df = pd.read_csv(path+'discussion_article.csv')
