@@ -60,7 +60,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
 
     #Start Summary Writter
     # Pad Sequence
-    batch_size = args.batch_size # Lets leave it at that for now 
+    batch_size = args.batch_size_per_gpu* args.n_gpu # Lets leave it at that for now 
     def collate(examples: List[torch.Tensor]):
         if tokenizer._pad_token is None:
             return pad_sequence(examples, batch_first=True)
@@ -107,13 +107,18 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
             raise ImportError("need to isntall apex for nvidia to use fp16 training. ")
         model,optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
 
+    if args.n_gpu > 1:
+        model = torch.nn.DataParallel(model)
+
+    #TODO think about rank thing
+
     logger.info("***** Started training *****")
     logger.info("  Num examples = %d", len(train_dataset))
     logger.info("  Num Epochs = %d", args.num_train_epochs)
     #logger.info("  Instantaneous batch size per GPU = %d", args.per_gpu_train_batch_size)
     logger.info(
         "  Total train batch size (w. parallel, distributed & accumulation) = %d",
-        args.batch_size
+        args.batch_size_per_gpu
         # * args.gradient_accumulation_steps
         # * (torch.distributed.get_world_size() if args.local_rank != -1 else 1),
     )
@@ -138,14 +143,20 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
 
             print("At step: ", step)
             # Skip Long Examples
-            if inputs.shape[1] > 1024: continue
+            if inputs.shape[1] > 4096:
+                print("Skipping this example")
+                continue
 
             inputs = inputs.to(args.device)
             labels = labels.to(args.device)
 
             model.train()
             outputs  = model(inputs,labels=labels)
+
             loss = outputs[0]
+
+            if args.n_gpu > 1:
+                loss = loss.mean()
 
             if args.fp_16:
                 with amp.scale_loss(loss,optimizer) as scaled_loss:

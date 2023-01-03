@@ -15,9 +15,8 @@ def parse_args():
                         dest='do_training',
                         default=True,
                         type=bool)
-    parser.add_argument("--batch_size",
-                        dest='batch_size',
-                        default=512,
+    parser.add_argument("--batch_size_per_gpu",
+                        dest='batch_size_per_gpu', default=512,
                         type=int)
     parser.add_argument("--gradient_accum_steps",
                         dest='gradient_accumulation_steps',
@@ -27,6 +26,11 @@ def parse_args():
                         dest='device',
                         default='cuda',
                         type=str)
+    parser.add_argument("--n_gpu",
+                        dest='n_gpu',
+                        required=True,
+                        help='Number of GPUs used for training',
+                        type=int)
     parser.add_argument("--ds_path",
                         dest='dataset_path',
                         required=True,
@@ -122,13 +126,21 @@ def construct_dialog(row,tokenizer_of_choice: PreTrainedTokenizer):
     # The Format here will be of n colums 1 of which is a response and n-1 are just context 
     # Flatten will go take a row, go through columns, go through their words, encode them and then put them all together
     convo = []
-    for col in reversed(row): 
+    print("Constructig Dialog")
+    for i,col in enumerate(row):
+        if col  == None: break
+        if i == 0:
+            convo.append(tokenizer_of_choice.encode(
+                "The following is an article and a following conversation between two people discussing it:\n"))
         convo.append(tokenizer_of_choice.encode(col))
         convo.append([tokenizer_of_choice.eos_token_id])
 
     convo.pop(-1)# Remove the last eos
-    flat_convo = [item for sublist in convo for item in sublist]
-    return flat_convo
+    final_convo = [item for sublist in convo for item in sublist]
+    if len(final_convo)>1023:
+        print("Skipping Dialog because size is ",len(final_convo))
+        final_convo = []
+    return final_convo
 
 def prepare_discussion_dataset(path,article_max_length=1024):
 
@@ -185,8 +197,10 @@ def process_datasets(path,context_length):
 
 def construct_conv(row,tokenizer_of_choice: PreTrainedTokenizer):
     # The Format here will be of n colums 1 of which is a response and n-1 are just context 
-    # Flatten will go take a row, go through columns, go through their words, encode them and then put them all together
+    # Flatten will go a row, go through columns, go through their words, encode them and then put them all together
     convo = []
+    # Revered becaus en this case fow goes
+    # response -> PrevStaement -> PrePrevStatement -> ...
     for col in reversed(row): 
         convo.append(tokenizer_of_choice.encode(col))
         convo.append([tokenizer_of_choice.eos_token_id])
@@ -214,8 +228,12 @@ class DiscussionDataset(Dataset):
             # Actually Do wome work on the dataframe
             self.examples = []
             logger.info("Formatting Data Properly...")
+            print('Formatting Data Properly')
             for _,row in dataframe.iterrows():
-                self.examples.append(construct_conv(row,tokenizer))# Single Row of DataFrame formatted for use
+                dialog = construct_dialog(row,tokenizer)
+                if (len(dialog) > 0):
+                    self.examples.append(dialog)# Single Row of DataFrame formatted for use
+
             logger.info("Saving Encoded Data into file at %s", cached_features_file)
             with open(cached_features_file,"wb") as filo:
                 pickle.dump(self.examples, filo, protocol=pickle.HIGHEST_PROTOCOL)
