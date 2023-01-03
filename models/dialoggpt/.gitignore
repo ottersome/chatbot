@@ -1,3 +1,4 @@
 .my_cache/
 .cache/
 output/
+.vimspector

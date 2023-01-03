@@ -1,3 +1,4 @@
+import sys
 import torch
 
 from transformers import (
@@ -11,8 +12,21 @@ from transformers import (
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
-tokenizer = AutoTokenizer.from_pretrained('microsoft/DialoGPT-small')
-model = AutoModelWithLMHead.from_pretrained('output')
+tokenizer = AutoTokenizer.from_pretrained('microsoft/DialoGPT-large')
+
+if sys.argv[1] : 
+    print("Using online model")
+    print(sys.argv[1])
+
+    print('Setting Up Tokenizers and (Possibly) PreTrained Models')
+    config = AutoConfig.from_pretrained(sys.argv[1], cache_dir='./.my_cache')
+    model = AutoModelWithLMHead.from_pretrained(
+            sys.argv[1], 
+            from_tf=False,
+            config=config,
+            cache_dir='./.my_cache/')
+else:
+    model = AutoModelWithLMHead.from_pretrained('output')
 
 # Let's chat for 5 lines
 for step in range(6):
