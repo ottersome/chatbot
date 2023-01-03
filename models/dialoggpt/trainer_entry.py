@@ -22,7 +22,7 @@ if __name__=='__main__':
 
     # Create Dataset in Memory
     print('Processing Dataset')
-    # df_trn, df_tst = process_datasets(args.dataset_path, 7)
+    #  df_trn, df_tst = process_datasets(args.dataset_path, 7)
     df_trn, df_tst = prepare_discussion_dataset(args.dataset_path, 1024)
 
     #Loading the modles
@@ -35,6 +35,8 @@ if __name__=='__main__':
                         )
     print('Setting Up Tokenizers and (Possibly) PreTrained Models')
     config = AutoConfig.from_pretrained(args.config_name, cache_dir=args.cache_dir)
+    #  config.n_positions = 4096
+    #  config.n_ctx= 4096
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
     model = AutoModelWithLMHead.from_pretrained(
             args.model_name_or_path, 
@@ -47,7 +49,7 @@ if __name__=='__main__':
     
     # Do Training
     if args.do_training:
-        train_dataset = RnMDialogue(tokenizer,args,df_trn,logger)
+        train_dataset = DiscussionDataset(tokenizer,args,df_trn,logger)
 
         print("Starting Training")
         global_step, tr_los = train(args, train_dataset, model, tokenizer)
