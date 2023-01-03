@@ -55,12 +55,17 @@ def parse_args():
     parser.add_argument("--config_name",
                         dest='config_name',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-medium',
+                        default='microsoft/DialoGPT-small',
                         type=str)
     parser.add_argument("--tokenizer_name",
                         dest='tokenizer_name',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-medium',
+                        default='microsoft/DialoGPT-small',
+                        type=str)
+    parser.add_argument("--model_name_or_path",
+                        dest='model_name_or_path',
+                        #  default='microsoft/DialoGPT-medium',
+                        default='microsoft/DialoGPT-small',
                         type=str)
     parser.add_argument("--block_size",
                         dest='block_size',
@@ -86,11 +91,6 @@ def parse_args():
                         dest='seed',
                         default=420,
                         type=int)
-    parser.add_argument("--model_name_or_path",
-                        dest='model_name_or_path',
-                        #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-medium',
-                        type=str)
     parser.add_argument("--overwrite_cached",
                         dest='overwrite_cached',
                         default=False,
@@ -122,6 +122,27 @@ def parse_args():
     return parser.parse_args()
 
 # Construct Conversation from a row of contexts :p
+def construct_convo(row,tokenizer_of_choice: PreTrainedTokenizer):
+    # The Format here will be of n colums 1 of which is a response and n-1 are just context 
+    # Flatten will go take a row, go through columns, go through their words, encode them and then put them all together
+    convo = []
+    print("Constructing Conversations")
+
+    for i,col in enumerate(row):
+        if col  == None: break
+        #  if i == 0:
+        #      convo.append(tokenizer_of_choice.encode(
+        #          "<Add some prefixed string to the conversation here if needed>"))
+        convo.append(tokenizer_of_choice.encode(col))
+        convo.append([tokenizer_of_choice.eos_token_id])
+
+    convo.pop(-1)# Remove the last eos
+    final_convo = [item for sublist in convo for item in sublist]
+    if len(final_convo)>1023:
+        print("Skipping Dialog because size is ",len(final_convo))
+        final_convo = []
+    return final_convo
+
 def construct_dialog(row,tokenizer_of_choice: PreTrainedTokenizer):
     # The Format here will be of n colums 1 of which is a response and n-1 are just context 
     # Flatten will go take a row, go through columns, go through their words, encode them and then put them all together
@@ -142,8 +163,40 @@ def construct_dialog(row,tokenizer_of_choice: PreTrainedTokenizer):
         final_convo = []
     return final_convo
 
-def prepare_convo_dataset(path):
+# For our particular dataset we want it to have all the context it has so far
+def prepare_convo_dataset(path, limit_in_size):
     conv_df = pd.read_csv(path)
+    # Let me get the numver of 
+    first_idx = conv_df['conversation_id'][0]
+    last_idx = conv_df['conversation_id'].iloc[-1]
+    num_of_convos = last_idx-first_idx+1
+
+    dialogues = []
+    for i in range(first_idx,last_idx+1):
+        # Get all utterances for a single dialogue example
+        convo = conv_df[conv_df['conversation_id'] == i]
+        
+        # TODO make sure it works when you actually have exmaples that are that long
+        ctx_wn_start = 0  # Object we will use to move context window depending on size
+        # This should inject every single tiny context up to where the conversation is so far.
+        for j in range(1,len(convo)+1):
+            unit_convo = convo['utterance'].iloc[0:j].tolist()
+            convo_length = 0
+
+            for conv in unit_convo : convo_length = convo_length + len(conv.split(' '))
+            while convo_length > limit_in_size:
+                ctx_wn_start += 1
+                unit_convo = convo['utterance'].iloc[ctx_wn_start:j].tolist()
+                convo_length = 0
+                for conv in unit_convo : convo_length = convo_length + len(conv.split(' '))
+
+            dialogues.append(unit_convo)
+
+    df = pd.DataFrame.from_records(dialogues)
+    return train_test_split(df,test_size=0.1)
+
+         
+         
 
 def prepare_discussion_dataset(path,article_max_length=1024):
 
@@ -153,6 +206,7 @@ def prepare_discussion_dataset(path,article_max_length=1024):
     first_idx = conv_df['conversation_id'][0]
     last_idx = conv_df['conversation_id'].iloc[-1]
     num_of_convos = first_idx - last_idx + 1
+    #
 
 
     # TODO: Do Train/Validation Split
@@ -170,6 +224,7 @@ def prepare_discussion_dataset(path,article_max_length=1024):
         dialogue = dialogue + convo['utterance'].tolist()
 
         dialogues.append(dialogue)
+
     df = pd.DataFrame.from_records(dialogues)
     return train_test_split(df, test_size= 0.1)
 
@@ -212,7 +267,42 @@ def construct_conv(row,tokenizer_of_choice: PreTrainedTokenizer):
     return flat_convo
 
 
-# Mostly useful wfor when we want to use RandomSampler and 隨便的 store this in a cache for later use
+class ConvoDataset(Dataset):
+    def __init__(self, tokenizer: PreTrainedTokenizer, args, dataframe, logger, block_size=512):
+        # model_max_length represents the maximum numberof tokens a model can handle(including speicla tokens)
+        # TODO understand this one right here
+        # block_size = block_size  - (tokenizer.max_len - tokenizer.max_len_single_sentence)
+
+        directory = args.cache_dir
+        cached_features_file = os.path.join(directory, args.model_type+"chached_lm_"+str(block_size))
+
+        if os.path.exists(cached_features_file) and not args.overwrite_cached:
+            logger.info("Loading cached features from cache file %s", cached_features_file)
+            with open(cached_features_file,"rb") as filo:
+                self.examples = pickle.load(filo)
+        else:
+            logger.info("Creating cache of features from dataset at %s", cached_features_file)
+            # Actually Do wome work on the dataframe
+            self.examples = []
+            logger.info("Formatting Data Properly...")
+            print('Formatting Data Properly')
+            for _,row in dataframe.iterrows():
+                dialog = construct_convo(row,tokenizer)
+                if (len(dialog) > 0):
+                    self.examples.append(dialog)# Single Row of DataFrame formatted for use
+
+            logger.info("Saving Encoded Data into file at %s", cached_features_file)
+            with open(cached_features_file,"wb") as filo:
+                pickle.dump(self.examples, filo, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def __getitem__(self,idx):
+        return torch.tensor(self.examples[idx], dtype=torch.long)
+
+    def __len__(self):
+        return self.len()
+
+    def len(self):
+        return len(self.examples)
 class DiscussionDataset(Dataset):
     def __init__(self, tokenizer: PreTrainedTokenizer, args, dataframe, logger, block_size=512):
         # model_max_length represents the maximum numberof tokens a model can handle(including speicla tokens)
