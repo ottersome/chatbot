@@ -1,4 +1,4 @@
-Utterance Id,Conversation Id,Sentence Tags,Level of Difficulty,Character,Utterance
+utterance_id,conversation_id,sentence_tags,level_of_difficulty,character_id,utterance
 1,1,Question,,1,Hi I was thinking about talking to HR about a potential raise. What do you think ?
 2,1,,,2,Hey! That's great that you're thinking about talking to HR about a raise. I'm sure you deserve it! What do you think the chances are that you'll get it?
 3,1,,,1,Thank you! I think there is a decent chance. I have provided our department with a 30% increase in output while keeping under budget.

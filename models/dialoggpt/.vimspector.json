@@ -14,7 +14,7 @@
         "stopOnEntry": true,
         "console": "externalTerminal",
         "debugOptions": [],
-        "args" : ["--ds_path","../../datasets/","--device","cuda","--n_gpu","1"],
+        "args" : ["--ds_path","../../datasets/conv_dataset.csv","--device","cuda","--n_gpu","1"],
         //"args" : ["--ds_path","./RickAndMortyScripts.csv","--device","cuda","--n_gpu","1"],
         "program": "./trainer_entry.py"
       }
