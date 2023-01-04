@@ -12,9 +12,9 @@ from transformers import (
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
-tokenizer = AutoTokenizer.from_pretrained('microsoft/DialoGPT-large')
+tokenizer = AutoTokenizer.from_pretrained('microsoft/DialoGPT-medium')
 
-if sys.argv[1] : 
+if len(sys.argv) > 1: 
     print("Using online model")
     print(sys.argv[1])
 
@@ -26,7 +26,7 @@ if sys.argv[1] :
             config=config,
             cache_dir='./.my_cache/')
 else:
-    model = AutoModelWithLMHead.from_pretrained('output')
+    model = AutoModelWithLMHead.from_pretrained('output/chkpnt-good/chkpnt-705')
 
 # Let's chat for 5 lines
 for step in range(6):

@@ -18,13 +18,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends  \
         python3-pip \
         python3.8-dev \
         build-essential \
-        # git \
+        git \
         curl \
         ca-certificates \
         zsh \
         sudo \
         locales \
         openssh-server \
+        rsync \
         #openssh-clients \
         vim && \
     # Remove the effect of `apt-get update`
@@ -38,6 +39,13 @@ ENV LANG en_US.utf8
 COPY requirements.txt .
 RUN python3.8 -m pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN python3.8 -m pip install --no-cache-dir -r requirements.txt
+
+# Install NVidia's Apex
+RUN git clone https://github.com/NVIDIA/apex /tmp/
+RUN cd /tmp
+RUN git checkout remotes/origin/22.04-dev
+RUN python3.8 -m pip install -v --disable-pip-version-check --no-cache-dir ./
+RUN cd 
 
 #RUN useradd --create-home --shell /bin/zsh --groups wheel -p $P $U 
 RUN useradd --create-home --shell /bin/zsh --groups sudo -p $P $U 

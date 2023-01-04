@@ -53,5 +53,5 @@ if __name__=='__main__':
         train_dataset = ConvoDataset(tokenizer,args,df_trn,logger)
 
         print("Starting Training")
-        global_step, tr_los = train(args, train_dataset, model, tokenizer)
-        logger.info("Global Step = %, average loss = %s", global_step,tr_loss)
+        global_step, tr_loss = train(args, train_dataset, model, tokenizer)
+        logger.info("Global Step = %d, average loss = %s", global_step,tr_loss)
