@@ -134,12 +134,15 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
     set_seed(args.seed)
 
 
+    epoch = 0
     for _ in train_iterator:
         within_epoch_iterator = tqdm(train_dataloader, desc="Iteration")
+        print('At epoch:',epoch)
+        epoch += 1
         for step, batch in enumerate(within_epoch_iterator):
             inputs, labels = (batch, batch)
-            print("I will show you the input and the batch")
-            print(batch)
+            #  print("I will show you the input and the batch")
+            #  print(batch)
 
             print("At step: ", step)
             # Skip Long Examples
@@ -184,8 +187,8 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
                 epoch_iterator.close()
                 break
 
-        #if global_step % args.checkpoint_interval == 0:
-        if True:
+        if global_step % args.checkpoint_interval == 0:
+        #  if True:
             output_dir = os.path.join(args.output_dir,"{}-{}".format("chkpnt",global_step))
             os.makedirs(output_dir, exist_ok=True)
             model_to_save = model

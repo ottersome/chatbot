@@ -46,7 +46,7 @@ def parse_args():
                         type=str)
     parser.add_argument("--checkpoint_interval",
                         dest='checkpoint_interval',
-                        default=500,
+                        default=5,
                         type=str)
     parser.add_argument("--model_type",
                         dest='model_type',
@@ -55,17 +55,17 @@ def parse_args():
     parser.add_argument("--config_name",
                         dest='config_name',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-small',
+                        default='microsoft/DialoGPT-large',
                         type=str)
     parser.add_argument("--tokenizer_name",
                         dest='tokenizer_name',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-small',
+                        default='microsoft/DialoGPT-large',
                         type=str)
     parser.add_argument("--model_name_or_path",
                         dest='model_name_or_path',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-small',
+                        default='microsoft/DialoGPT-large',
                         type=str)
     parser.add_argument("--block_size",
                         dest='block_size',
@@ -117,7 +117,7 @@ def parse_args():
                         type=int)
     parser.add_argument("--num_train_epochs",
                         dest='num_train_epochs',
-                        default=3,
+                        default=20,
                         type=int)
     return parser.parse_args()
 
