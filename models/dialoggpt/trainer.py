@@ -132,6 +132,8 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
     global_step = 0
     logging_loss, tr_loss = 0.0,0.0
     set_seed(args.seed)
+    epoch_wise_loss = []
+    epoch_wise_valloss = []
 
 
     epoch = 0
@@ -157,6 +159,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
             outputs  = model(inputs,labels=labels)
 
             loss = outputs[0]
+            epoch_wise_loss.append(loss)
 
             if args.n_gpu > 1:
                 loss = loss.mean()
@@ -202,6 +205,13 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
             print(f'Sving checkpoint at global step {global_step}')
             logger.info("Saving optimizer and scheduler states to %s", output_dir)
             logger.info("\tLoss foar this training epoch was:%f", tr_loss/global_step)
+        # For now we will evaluate on every epoch 
+        if global_step% 1 == 0:
+            val_score = evaluate(args, model, tokenizer)
+            epoch_wise_loss.append(val_score)
+            # TODO compare validation results to see if there is no longer any improvement
+            logger.info(f'Validation loss(perplexity) for epoch {epoch} is {val_score}')
+            #
 
         if args.max_steps > 0 and global_step > args.max_steps:
             print("global steps has overcome max steps")
@@ -214,11 +224,11 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
 
 
 
-        #
-def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, eval_dataset, df_trn, df_val, prefix ="") -> Dict:
+def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, eval_dataset, df_val, prefix ="") -> Dict:
     # Create output dir
-    eval_output_dir = args.output_dir
-    os.makedirs(eval_output_dir, exist_ok=True)
+    #  eval_output_dir = args.output_dir
+    #  os.makedirs(eval_output_dir, exist_ok=True)
+    batch_size = args.batch_size_per_gpu* max(1, args.n_gpu)
 
     def collate(examples: List[torch.Tensor]):
         if tokenizer._pad_token is None:
@@ -226,23 +236,23 @@ def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, eval_
         return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
 
     eval_sampler = SequentialSampler(eval_dataset)
-    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.batch_size, collate_fn=collate, drop_last=True)
+    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=batch_size, collate_fn=collate, drop_last=True)
 
-    # Load the evaluation data set
-    # Set teh evaluation size
-    #
-    # Do colation 
-    # Crete Sampelr
-    # Create Data Loader
-    #
-    # Log Some Stuff
-    #
-    # Set the model to evaluation mode
-    #
-    # Go through the batch 
-    #
-    # eval_loss /= evaluation_steps
-    # prepelexity = torch.exp(torch.tensor(eval_loss))
-    # result = {"perplexity": perplexity}
+    # TODO set model for multi gpu environment
+    eval_loss = 0.0
+    nb_eval_steps = 0
+    model.eval()
+    for batch in tqdm(eval_dataloader):
+        inputs, labels = (batch,batch)
+        inputs = inputs.to(args.devices)
+        labels = label.to(args.devices)
+        with torch.no_grad():
+            outputs = model(inputs, labels=labels)
+            lm_loss = outputs[0]
+            eval_loss += lm_loss.mean().item()
+        nb_eval_steps += 1
 
-    # log_eval_file = os.path.join(e)
+    eval_loss = eval_loss / nb_eval_steps
+    perplexity = torch.exp(torch.tensor(eval_loss))
+
+    return perplexity

@@ -26,12 +26,13 @@ if len(sys.argv) > 1:
             config=config,
             cache_dir='./.my_cache/')
 else:
+    #  model = AutoModelWithLMHead.from_pretrained('output/dialoggpt-medium-epoch-20')
     model = AutoModelWithLMHead.from_pretrained('output/chkpnt-good/chkpnt-705')
 
 # Let's chat for 5 lines
 for step in range(6):
     # encode the new user input, add the eos_token and return a tensor in Pytorch
-    new_user_input_ids = tokenizer.encode(input(">> User:") + tokenizer.eos_token, return_tensors='pt')
+    new_user_input_ids = tokenizer.encode(input("") + tokenizer.eos_token, return_tensors='pt')
     # print(new_user_input_ids)
 
     # append the new user input tokens to the chat history
@@ -41,9 +42,13 @@ for step in range(6):
     chat_history_ids = model.generate(
         bot_input_ids, max_length=1000,
         pad_token_id=tokenizer.eos_token_id,
-        top_p=0.92, top_k = 50
+        top_p=0.92,
+        top_k = 30
+        #  top_k = 50
     )
     
     # pretty print last ouput tokens from bot
-    print("DialoGPT: {}".format(tokenizer.decode(chat_history_ids[:, bot_input_ids.shape[-1]:][0], skip_special_tokens=True)))
+    print(tokenizer.decode(chat_history_ids[:, bot_input_ids.shape[-1]:][0], skip_special_tokens=True))
+    sys.stdout.flush()
+
 

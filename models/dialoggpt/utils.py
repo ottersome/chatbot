@@ -268,13 +268,15 @@ def construct_conv(row,tokenizer_of_choice: PreTrainedTokenizer):
 
 
 class ConvoDataset(Dataset):
-    def __init__(self, tokenizer: PreTrainedTokenizer, args, dataframe, logger, block_size=512):
+
+    def __init__(self, tokenizer: PreTrainedTokenizer, args, df_train, logger, block_size=512, name_extra=""):
         # model_max_length represents the maximum numberof tokens a model can handle(including speicla tokens)
         # TODO understand this one right here
         # block_size = block_size  - (tokenizer.max_len - tokenizer.max_len_single_sentence)
 
         directory = args.cache_dir
-        cached_features_file = os.path.join(directory, args.model_type+"chached_lm_"+str(block_size))
+        cached_features_file = os.path.join(directory, args.model_type+"cached_lm_"+name_extra+str(block_size))
+        self.examples = []
 
         if os.path.exists(cached_features_file) and not args.overwrite_cached:
             logger.info("Loading cached features from cache file %s", cached_features_file)
@@ -282,14 +284,14 @@ class ConvoDataset(Dataset):
                 self.examples = pickle.load(filo)
         else:
             logger.info("Creating cache of features from dataset at %s", cached_features_file)
-            # Actually Do wome work on the dataframe
-            self.examples = []
+            # Actually Do wome work on the df_train
             logger.info("Formatting Data Properly...")
             print('Formatting Data Properly')
-            for _,row in dataframe.iterrows():
+            # Training Data in one file
+            for _,row in df_train.iterrows():
                 dialog = construct_convo(row,tokenizer)
                 if (len(dialog) > 0):
-                    self.examples.append(dialog)# Single Row of DataFrame formatted for use
+                    self.examples.append(dialog)# Single Row of df_train formatted for use
 
             logger.info("Saving Encoded Data into file at %s", cached_features_file)
             with open(cached_features_file,"wb") as filo:

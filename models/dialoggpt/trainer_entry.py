@@ -24,7 +24,7 @@ if __name__=='__main__':
     print('Processing Dataset')
     #  df_trn, df_tst = process_datasets(args.dataset_path, 7)
     #  df_trn, df_tst = prepare_discussion_dataset(args.dataset_path, 1024)
-    df_trn, df_tst = prepare_convo_dataset(args.dataset_path, 1024)
+    df_trn, df_val = prepare_convo_dataset(args.dataset_path, 1024)
 
     #Loading the modles
     set_seed(args.seed)
@@ -50,8 +50,9 @@ if __name__=='__main__':
     
     # Do Training
     if args.do_training:
-        train_dataset = ConvoDataset(tokenizer,args,df_trn,logger)
+        train_dataset= ConvoDataset(tokenizer,args,df_trn,logger)
+        val_dataset= ConvoDataset(tokenizer,args,df_trn,logger,"val_")
 
         print("Starting Training")
-        global_step, tr_loss = train(args, train_dataset, model, tokenizer)
+        global_step, tr_loss = train(args, train_dataset, val_dataset, model, tokenizer)
         logger.info("Global Step = %d, average loss = %s", global_step,tr_loss)
