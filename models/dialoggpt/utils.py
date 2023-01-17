@@ -16,7 +16,7 @@ def parse_args():
                         default=True,
                         type=bool)
     parser.add_argument("--batch_size_per_gpu",
-                        dest='batch_size_per_gpu', default=512,
+                        dest='batch_size_per_gpu', default=2,
                         type=int)
     parser.add_argument("--gradient_accum_steps",
                         dest='gradient_accumulation_steps',
@@ -55,17 +55,17 @@ def parse_args():
     parser.add_argument("--config_name",
                         dest='config_name',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-large',
+                        default='microsoft/DialoGPT-medium',
                         type=str)
     parser.add_argument("--tokenizer_name",
                         dest='tokenizer_name',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-large',
+                        default='microsoft/DialoGPT-medium',
                         type=str)
     parser.add_argument("--model_name_or_path",
                         dest='model_name_or_path',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-large',
+                        default='microsoft/DialoGPT-medium',
                         type=str)
     parser.add_argument("--block_size",
                         dest='block_size',

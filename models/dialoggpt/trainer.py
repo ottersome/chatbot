@@ -53,7 +53,7 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 # I dont t like these proces of "adding context".
 
 
-def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
+def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
 
     # For main gpu 
     tb_writer = SummaryWriter()
@@ -207,19 +207,20 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
             logger.info("\tLoss foar this training epoch was:%f", tr_loss/global_step)
         # For now we will evaluate on every epoch 
         if global_step% 1 == 0:
-            val_score = evaluate(args, model, tokenizer)
-            epoch_wise_loss.append(val_score)
+            val_score = evaluate(args, model, tokenizer, val_dataset)
+            epoch_wise_valloss.append(val_score)
             # TODO compare validation results to see if there is no longer any improvement
             logger.info(f'Validation loss(perplexity) for epoch {epoch} is {val_score}')
-            if len(val_score) > 3 :
-                threshold_crossed  = (val_score[-1]-val_score[-2] < 0 ) and (val_score[-2]-val_score[-3] < 0 )
+            if len(epoch_wise_valloss) > 3 :
+                threshold_crossed  = (epoch_wise_valloss[-1]-epoch_wise_valloss[-2] < 0 ) and (epoch_wise_valloss[-2]-epoch_wise_valloss[-3] < 0 )
                 output_dir = os.path.join(args.output_dir,"{}-{}".format("early_stop",global_step))
-                if threshold:
+                os.makedirs(output_dir,exist_ok=True)
+                if threshold_crossed:
                     logger.info('We have detected an increase in validation loss in two consecutive epochs.')
                     logger.info('We will now save this model and stop trianing ')
 
-                    np.save(os.path.join(output_dir,'_val_loss.npy'),epoch_wise_valloss)
-                    np.save(os.path.join(output_dir,'_loss.npy'),outputdir+'_loss',epoch_wise_loss)
+                    torch.save(epoch_wise_valloss,os.path.join(output_dir,'valloss.pt'))
+                    torch.save(epoch_wise_loss,os.path.join(output_dir,'loss.pt'))
                     torch.save(optimizer.state_dict(),os.path.join(output_dir,'optimizer.pt'))
                     torch.save(scheduler.state_dict(), os.path.join(output_dir, 'scheduler.pt'))
                     print(f'We have hit early stopping at epoch {epoch} saving and breaking now...')
@@ -236,7 +237,7 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
 
 
 
-def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, eval_dataset, df_val, prefix ="") -> Dict:
+def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, eval_dataset, prefix ="") -> Dict:
     # Create output dir
     #  eval_output_dir = args.output_dir
     #  os.makedirs(eval_output_dir, exist_ok=True)
@@ -256,8 +257,8 @@ def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, eval_
     model.eval()
     for batch in tqdm(eval_dataloader):
         inputs, labels = (batch,batch)
-        inputs = inputs.to(args.devices)
-        labels = label.to(args.devices)
+        inputs = inputs.to(args.device)
+        labels = labels.to(args.device)
         with torch.no_grad():
             outputs = model(inputs, labels=labels)
             lm_loss = outputs[0]
