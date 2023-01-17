@@ -179,6 +179,7 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
             global_step+=1
 
             print(f'Total loss so far : {tr_loss/global_step}')
+            logger.info(f'Loss for epoch {epoch} is {tr_loss/global_step}')
 
             if global_step % args.logging_steps == 0:
                 tb_writer.add_scalar("lr", scheduler.get_lr()[0],global_step)
@@ -212,7 +213,7 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
             # TODO compare validation results to see if there is no longer any improvement
             logger.info(f'Validation loss(perplexity) for epoch {epoch} is {val_score}')
             if len(epoch_wise_valloss) > 3 :
-                threshold_crossed  = (epoch_wise_valloss[-1]-epoch_wise_valloss[-2] < 0 ) and (epoch_wise_valloss[-2]-epoch_wise_valloss[-3] < 0 )
+                threshold_crossed  = (epoch_wise_valloss[-1]-epoch_wise_valloss[-2] > 0 ) and (epoch_wise_valloss[-2]-epoch_wise_valloss[-3] > 0 )
                 output_dir = os.path.join(args.output_dir,"{}-{}".format("early_stop",global_step))
                 os.makedirs(output_dir,exist_ok=True)
                 if threshold_crossed:
