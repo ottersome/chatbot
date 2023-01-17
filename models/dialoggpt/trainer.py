@@ -211,8 +211,20 @@ def train(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedToke
             epoch_wise_loss.append(val_score)
             # TODO compare validation results to see if there is no longer any improvement
             logger.info(f'Validation loss(perplexity) for epoch {epoch} is {val_score}')
-            #
+            if len(val_score) > 3 :
+                threshold_crossed  = (val_score[-1]-val_score[-2] < 0 ) and (val_score[-2]-val_score[-3] < 0 )
+                output_dir = os.path.join(args.output_dir,"{}-{}".format("early_stop",global_step))
+                if threshold:
+                    logger.info('We have detected an increase in validation loss in two consecutive epochs.')
+                    logger.info('We will now save this model and stop trianing ')
 
+                    np.save(os.path.join(output_dir,'_val_loss.npy'),epoch_wise_valloss)
+                    np.save(os.path.join(output_dir,'_loss.npy'),outputdir+'_loss',epoch_wise_loss)
+                    torch.save(optimizer.state_dict(),os.path.join(output_dir,'optimizer.pt'))
+                    torch.save(scheduler.state_dict(), os.path.join(output_dir, 'scheduler.pt'))
+                    print(f'We have hit early stopping at epoch {epoch} saving and breaking now...')
+                    
+                    break
         if args.max_steps > 0 and global_step > args.max_steps:
             print("global steps has overcome max steps")
             train_iterator.close()
