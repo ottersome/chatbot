@@ -6,13 +6,17 @@ from transformers import (
     WEIGHTS_NAME,
     AdamW,
     AutoConfig,
+    pipeline,
     AutoModelWithLMHead,
+    AutoModelForCausalLM,
     AutoTokenizer,
     PreTrainedModel,
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
-tokenizer = AutoTokenizer.from_pretrained('microsoft/DialoGPT-medium')
+#pipe = pipeline(model='EleutherAI/gpt-j-6B',model_kwargs={'device_map':"auto","load_in_8_bits":True})
+name = 'bigscience/bloom-3b'
+tokenizer = AutoTokenizer.from_pretrained(name)
 
 if len(sys.argv) > 1: 
     print("Using online model")
@@ -27,7 +31,7 @@ if len(sys.argv) > 1:
             cache_dir='./.my_cache/')
 else:
     #  model = AutoModelWithLMHead.from_pretrained('output/dialoggpt-medium-epoch-20')
-    model = AutoModelWithLMHead.from_pretrained('output/medium59')
+    model = AutoModelForCausalLM.from_pretrained(name, device_map="cuda",load_in_8bit=True)
 
 # Let's chat for 5 lines
 for step in range(6):
