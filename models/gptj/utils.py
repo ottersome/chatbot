@@ -55,17 +55,17 @@ def parse_args():
     parser.add_argument("--config_name",
                         dest='config_name',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-medium',
+                        default='eleutherai/gpt-j-6b',
                         type=str)
     parser.add_argument("--tokenizer_name",
                         dest='tokenizer_name',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-medium',
+                        default='eleutherai/gpt-j-6b',
                         type=str)
     parser.add_argument("--model_name_or_path",
                         dest='model_name_or_path',
                         #  default='microsoft/DialoGPT-medium',
-                        default='microsoft/DialoGPT-medium',
+                        default='eleutherai/gpt-j-6b',
                         type=str)
     parser.add_argument("--block_size",
                         dest='block_size',

@@ -1,7 +1,7 @@
 import argparse
 import logging
 import os
-from transformers import AutoModelWithLMHead, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import glob
 import random
@@ -34,14 +34,18 @@ if __name__=='__main__':
                         filename='training.log',
                         level=logging.INFO 
                         )
+    
+    # Meep 
     print('Setting Up Tokenizers and (Possibly) PreTrained Models')
+
     config = AutoConfig.from_pretrained(args.config_name, cache_dir=args.cache_dir)
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
-    model = AutoModelWithLMHead.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
             args.model_name_or_path, 
             from_tf=False,
             config=config,
             cache_dir=args.cache_dir)
+    #model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, device_map="auto",load_in_8bit=True)
 
     model.to(device)
     # TODO Need To Deal with checkpoints
