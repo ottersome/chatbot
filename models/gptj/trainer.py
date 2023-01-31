@@ -10,9 +10,11 @@ from typing import Dict, List, Tuple
 import pandas as pd 
 import numpy as np
 import torch
+import bitsandbytes as bnb
 
 
 from torch.nn.utils.rnn import pad_sequence
+from torch.nn.functional import pad
 from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm.notebook import tqdm, trange
@@ -51,8 +53,8 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 # TODO we must think about changing the way we process these prompt-> reponses
 # I dont t like these proces of "adding context".
-
-
+#
+     
 def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
 
     # For main gpu 
@@ -86,7 +88,8 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
     total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
 
     # Chose Adam as optimizer
-    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
+    # optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
+    optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     # Scheduler with WarmpUp an then linear decrease
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_training_steps
@@ -100,12 +103,12 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
         # Start with checkpointif available
         # Start Training Itaration
 
-    if args.fp_16:
-        try :
-            from apex import amp 
-        except ImportError:
-            raise ImportError("need to isntall apex for nvidia to use fp16 training. ")
-        model,optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
+    # if args.fp_16:
+        # try :
+            # from apex import amp 
+        # except ImportError:
+            # raise ImportError("need to isntall apex for nvidia to use fp16 training. ")
+        # model,optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
 
     if args.n_gpu > 1:
         model = torch.nn.DataParallel(model)
