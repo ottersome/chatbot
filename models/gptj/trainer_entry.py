@@ -24,7 +24,7 @@ if __name__=='__main__':
     print('Processing Dataset')
     #  df_trn, df_tst = process_datasets(args.dataset_path, 7)
     #  df_trn, df_tst = prepare_discussion_dataset(args.dataset_path, 1024)
-    df_trn, df_val = prepare_convo_dataset(args.dataset_path, 1024)
+    df_trn, df_val = prepare_convo_dataset(args.dataset_path, 2048)
 
     #Loading the modles
     set_seed(args.seed)
@@ -36,8 +36,6 @@ if __name__=='__main__':
                         )
     print('Setting Up Tokenizers and (Possibly) PreTrained Models')
     config = AutoConfig.from_pretrained(args.config_name, cache_dir=args.cache_dir)
-    #  config.n_positions = 4096
-    #  config.n_ctx= 4096
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
     model = AutoModelWithLMHead.from_pretrained(
             args.model_name_or_path, 
