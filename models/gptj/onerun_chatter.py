@@ -6,13 +6,17 @@ from transformers import (
     WEIGHTS_NAME,
     AdamW,
     AutoConfig,
+    pipeline,
     AutoModelWithLMHead,
+    AutoModelForCausalLM,
     AutoTokenizer,
     PreTrainedModel,
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
-tokenizer = AutoTokenizer.from_pretrained('microsoft/DialoGPT-medium')
+#pipe = pipeline(model='EleutherAI/gpt-j-6B',model_kwargs={'device_map':"auto","load_in_8_bits":True})
+name = 'EleutherAI/gpt-j-6B'
+tokenizer = AutoTokenizer.from_pretrained(name)
 
 if len(sys.argv) > 1: 
     print("Using online model")
@@ -27,28 +31,39 @@ if len(sys.argv) > 1:
             cache_dir='./.my_cache/')
 else:
     #  model = AutoModelWithLMHead.from_pretrained('output/dialoggpt-medium-epoch-20')
-    model = AutoModelWithLMHead.from_pretrained('output/medium59')
+    model = AutoModelForCausalLM.from_pretrained(name, device_map="auto",load_in_8bit=True)
 
+params = {
+  "layers": 28,
+  "d_model": 4096,
+  "n_heads": 16,
+  "n_vocab": 50400,
+  "norm": "layernorm",
+  "pe": "rotary",
+  "pe_rotary_dims": 64,
+
+  "seq": 2048,
+  "cores_per_replica": 8,
+  "per_replica_batch": 1,
+}
+
+device = 'cpu'
 # Let's chat for 5 lines
-for step in range(6):
+while True:
     # encode the new user input, add the eos_token and return a tensor in Pytorch
-    new_user_input_ids = tokenizer.encode(input("") + tokenizer.eos_token, return_tensors='pt')
-    # print(new_user_input_ids)
-
-    # append the new user input tokens to the chat history
-    bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1) if step > 0 else new_user_input_ids
+    tokens = tokenizer(input("User: "), return_tensors='pt' )
+    prompt = {key:value.to(device) for key,value in tokens.items()}
 
     # generated a response while limiting the total chat history to 1000 tokens, 
-    chat_history_ids = model.generate(
-        bot_input_ids, max_length=1000,
-        pad_token_id=tokenizer.eos_token_id,
-        top_p=0.92,
-        top_k = 30
+    out = model.generate(**prompt,min_length=10, max_length=128,do_sample=True
+        #pad_token_id=tokenizer.eos_token_id,
+        #top_p=0.92,
+        #top_k = 30
         #  top_k = 50
     )
     
     # pretty print last ouput tokens from bot
-    print(tokenizer.decode(chat_history_ids[:, bot_input_ids.shape[-1]:][0], skip_special_tokens=True))
+    print(tokenizer.decode(out[0], skip_special_tokens=True))
     sys.stdout.flush()
 
 
