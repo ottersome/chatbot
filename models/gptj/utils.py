@@ -85,7 +85,7 @@ def parse_args():
                         type=float)
     parser.add_argument("--fp_16",
                         dest='fp_16',
-                        default=True,
+                        default=False,
                         type=bool)
     parser.add_argument("--seed",
                         dest='seed',
