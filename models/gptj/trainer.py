@@ -60,6 +60,8 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
     # For main gpu 
     tb_writer = SummaryWriter()
 
+    model.gradient_checkpointing_enable()
+
     #Start Summary Writter
     # Pad Sequence
     batch_size = args.batch_size_per_gpu* args.n_gpu # Lets leave it at that for now 
@@ -77,19 +79,20 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
     model.resize_token_embeddings(len(tokenizer))
     no_decay = ["bias","LayerNorm.weight"]
 
-    #optimizer_grouped_parameters = [
-    #        {
-    #            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-    #            "weight_decay": args.weight_decay,
-    #        },
-    #        {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
-    #    ]
+    optimizer_grouped_parameters = [
+           {
+               "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+               "weight_decay": args.weight_decay,
+           },
+           {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
+       ]
 
     #total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
     total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
 
     # Chose Adam as optimizer
     #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
+    #optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
     # Scheduler with WarmpUp an then linear decrease
     scheduler = get_linear_schedule_with_warmup(
@@ -160,7 +163,8 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
             labels = labels.to(args.device)
 
             model.train()
-            outputs  = model(inputs,labels=labels)
+            #outputs  = model(inputs,labels=labels)
+            outputs  = model.forward(inputs,labels=labels)
 
             loss = outputs[0]
             epoch_wise_loss.append(loss)
