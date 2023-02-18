@@ -7,6 +7,7 @@ import glob
 import random
 from typing import Dict, List, Tuple
 import pandas as pd
+from GPTJ8bit import *
 import numpy as np
 from torch.nn.utils.rnn import pad_sequence
 
@@ -40,13 +41,16 @@ if __name__=='__main__':
 
     config = AutoConfig.from_pretrained(args.config_name, cache_dir=args.cache_dir)
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
-    model = AutoModelForCausalLM.from_pretrained(
-            args.model_name_or_path, 
-            #from_tf=False,
-            #config=config,
-            device_map='auto',
-            load_in_8bit=True,
-            cache_dir=args.cache_dir)
+    model = GPTJForCausalLM.from_pretrained("hivemind/gpt-j-6B-8bit", low_cpu_mem_usage=True)
+    add_adapters(model)
+    model.to('cuda')
+    # model = AutoModelForCausalLM.from_pretrained(
+            # args.model_name_or_path, 
+            # #from_tf=False,
+            # #config=config,
+            # device_map='auto',
+            # load_in_8bit=True,
+            # cache_dir=args.cache_dir)
     #model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, device_map="auto",load_in_8bit=True)
 
     #model.to(device)
