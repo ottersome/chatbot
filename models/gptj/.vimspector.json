@@ -1,3 +1,4 @@
+
 {
   "adapters": {
     "python-remote": {
@@ -21,8 +22,9 @@
             "python", "-m", "debugpy",
             "--listen", "0.0.0.0:${port}",
             "--wait-for-client",
-            "trainer_entry.py --ds_path ../../datasets/conv_dataset.csv --device cuda --n_gpu 1"
+            "chatter.py"
           ]
+            //"trainer_entry.py --ds_path ../../datasets/conv_dataset.csv --device cuda --n_gpu 1"
 
           // Optional alternative to runCommand (if you need to run multiple
           // commands)
@@ -50,14 +52,14 @@
             // call a custom command to return the PID for a named service, so
             // here's an examle:
             //
-            "/path/to/secret/script/GetPIDForService", "${ServiceName}"
+            "ls", "-lah"
           ],
 
           // Command to attach the debugger; %PID% replaced with output of
           // pidCommand above (mandatory)
           "attachCommand": [
             "python", "-m", "debugpy", "--listen", "0.0.0.0:${port}",
-            "--pid", "%PID%"
+            "--pid", "2945309"
           ]
 
           // Optional alternative to attachCommand (if you need to run multiple
@@ -115,6 +117,23 @@
 
       "configuration": {
         "request": "attach",
+        "pathMappings": [
+          {
+            "localRoot": "/home/ottersome/Projects/Huginns/Chatbot/models/gptj/",
+            "remoteRoot": "/home/racc/NLP/chatbot/models/gptj"
+          }
+        ]
+      }
+    },
+    "Runny: Launch": {
+      "adapter": "multi-session",
+      "filetypes": [ "python" ],
+      "configuration": {
+        "name": "Runny: Launch",
+        "console": "integratedTerminal",
+        "type": "python",
+        "request": "attach",
+        "python": "/home/ottersome/miniconda3/envs/datascience/bin/python",
         "pathMappings": [
           {
             "localRoot": "/home/ottersome/Projects/Huginns/Chatbot/models/gptj/",

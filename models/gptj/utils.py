@@ -16,7 +16,7 @@ def parse_args():
                         default=True,
                         type=bool)
     parser.add_argument("--batch_size_per_gpu",
-                        dest='batch_size_per_gpu', default=2,
+                        dest='batch_size_per_gpu', default=1,
                         type=int)
     parser.add_argument("--gradient_accum_steps",
                         dest='gradient_accumulation_steps',
@@ -77,7 +77,7 @@ def parse_args():
                         type=str)
     parser.add_argument("--learning_rate",
                         dest='learning_rate',
-                        default=5e-5,
+                        default=1e-5,
                         type=float)
     parser.add_argument("--adam_epsilon",
                         dest='adam_epsilon',

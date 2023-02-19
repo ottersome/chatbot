@@ -43,17 +43,9 @@ if __name__=='__main__':
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
     model = GPTJForCausalLM.from_pretrained("hivemind/gpt-j-6B-8bit", low_cpu_mem_usage=True)
     add_adapters(model)
-    model.to('cuda')
-    # model = AutoModelForCausalLM.from_pretrained(
-            # args.model_name_or_path, 
-            # #from_tf=False,
-            # #config=config,
-            # device_map='auto',
-            # load_in_8bit=True,
-            # cache_dir=args.cache_dir)
-    #model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, device_map="auto",load_in_8bit=True)
-
-    #model.to(device)
+    args.device = torch.device(args.device)
+    model.to(args.device)
+  
     # TODO Need To Deal with checkpoints
     
     # Do Training

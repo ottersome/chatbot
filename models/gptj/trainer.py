@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import torch
 import bitsandbytes as bnb
+import torch.nn.functional as F
 
 
 from torch.nn.utils.rnn import pad_sequence
@@ -94,30 +95,10 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
     #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     #optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
-    # Scheduler with WarmpUp an then linear decrease
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_training_steps
-    )
-    #
-    # TODO: Check if checkopoints exists
-    
-    # Actually Train
-        # Show some Logging Info 
-        # Check for model checkpoint
-        # Start with checkpointif available
-        # Start Training Itaration
-
-    if args.fp_16:
-        try :
-            from apex import amp 
-        except ImportError:
-            raise ImportError("need to isntall apex for nvidia to use fp16 training. ")
-        model,optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
-
-    if args.n_gpu > 1:
-        model = torch.nn.DataParallel(model)
-
-    #TODO think about rank thing
+    # TODO: Load Checkpoints if available
+    #  scheduler = get_linear_schedule_with_warmup(
+    #      optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_training_steps
+    #  )
 
     logger.info("***** Started training *****")
     logger.info("  Num examples = %d", len(train_dataset))
@@ -159,38 +140,34 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
                 print("Skipping this example")
                 continue
 
+            #  inputs = inputs.to(args.device)
+            #  labels = labels.to(args.device)
             inputs = inputs.to(args.device)
-            labels = labels.to(args.device)
 
             model.train()
             #outputs  = model(inputs,labels=labels)
-            outputs  = model.forward(inputs,labels=labels)
+            out  = model.forward(input_ids = inputs)
 
-            loss = outputs[0]
+            #loss = outputs[0]
+            labels = inputs[:,1:].flatten()
+            loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
             epoch_wise_loss.append(loss)
 
-            if args.n_gpu > 1:
-                loss = loss.mean()
-
-            if args.fp_16:
-                with amp.scale_loss(loss,optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else: 
-                loss.backward()
+            print(loss)
+            loss.backward()
 
             tr_loss += loss.item()
 
             # Here we might use accumulation steps
             optimizer.step()
-            scheduler.step()
-            model.zero_grad()
+            #  scheduler.step()
+            optimizer.zero_grad()
             global_step+=1
 
             print(f'Total loss so far : {tr_loss/global_step}')
             logger.info(f'Loss for epoch {epoch} is {tr_loss/global_step}')
 
             if global_step % args.logging_steps == 0:
-                tb_writer.add_scalar("lr", scheduler.get_lr()[0],global_step)
                 tb_writer.add_scalar("loss", (tr_loss - logging_loss)/args.logging_steps)
                 
                 logging_loss = tr_loss
@@ -205,14 +182,13 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
             os.makedirs(output_dir, exist_ok=True)
             model_to_save = model
 
-            model_to_save.save_pretrained(output_dir)
-            tokenizer.save_pretrained(output_dir)
+            #  model_to_save.save_pretrained(output_dir)
+            #  tokenizer.save_pretrained(output_dir)
+            torch.save(model.state_dict(),os.path.join(output_dir,"model_state_dict.pt"))
             torch.save(args, os.path.join(output_dir,"training_args.bin"))
 
             torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
-            torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
             print(f'Sving checkpoint at global step {global_step}')
-            logger.info("Saving optimizer and scheduler states to %s", output_dir)
             logger.info("\tLoss foar this training epoch was:%f", tr_loss/global_step)
         # For now we will evaluate on every epoch 
         if global_step% 1 == 0:
@@ -231,7 +207,6 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
                     torch.save(epoch_wise_valloss,os.path.join(output_dir,'valloss.pt'))
                     torch.save(epoch_wise_loss,os.path.join(output_dir,'loss.pt'))
                     torch.save(optimizer.state_dict(),os.path.join(output_dir,'optimizer.pt'))
-                    torch.save(scheduler.state_dict(), os.path.join(output_dir, 'scheduler.pt'))
                     print(f'We have hit early stopping at epoch {epoch} saving and breaking now...')
                     
                     break
