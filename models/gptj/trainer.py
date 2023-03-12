@@ -161,11 +161,18 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
 
             #outputs  = model(inputs,labels=labels) # THis is for useing the internal loss function
             # TODO Maks for padding the batch 
-            out  = model.forward(input_ids = inputs,attention_mask= masks, use_cache=False)
+            logger.info("Lenght of sttring: {}".format(inputs.shape) )
+            extra_zeros = torch.tensor([[0]]*inputs.shape[0]).to(args.device)
+            labels = torch.cat([inputs[:,1:], extra_zeros],axis=1)
+            print("Labels dimension: ", labels.shape)
+            print("Size of inputs : ",inputs.shape)
+            print("Size of target : ",labels.shape)
+            out  = model.forward(input_ids = inputs,labels=labels,attention_mask= masks, use_cache=False)
+            loss = out[0].mean()
+            print("Loss is : {}".format(loss))
 
             #loss = outputs[0]
-            labels = inputs[:,1:].flatten()
-            loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
+            # loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
             epoch_wise_loss.append(loss)
 
             loss.backward()

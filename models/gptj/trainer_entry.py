@@ -70,8 +70,8 @@ if __name__=='__main__':
         model.load_state_dict(torch.load(args.checkpoint_path+'/model_state_dict.pt'))
 
     args.device = torch.device(args.device)
-    # model = nn.DataParallel(model)
     model.to(args.device)
+    model = nn.DataParallel(model)
   
     # Crearte Output dir
     p=Path(args.output_dir)
