@@ -3,6 +3,7 @@ import logging
 import os
 import pickle
 import random
+import sys
 import re
 import shutil
 from typing import Dict, List, Tuple
@@ -13,12 +14,13 @@ import torch
 import bitsandbytes as bnb
 import torch.nn.functional as F
 
+from datasets import *
 
 from torch.nn.utils.rnn import pad_sequence
 from torch.nn.functional import pad
 from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
-from tqdm.notebook import tqdm, trange
+from tqdm import tqdm, trange
 
 from pathlib import Path
 
@@ -33,7 +35,7 @@ from transformers import (
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
-from utils import set_seed
+from utils import set_seed,get_mask
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -56,52 +58,64 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 # I dont t like these proces of "adding context".
 #
      
-def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
-
-    # For main gpu 
-    tb_writer = SummaryWriter()
-
-    model.gradient_checkpointing_enable()
-
-    #Start Summary Writter
-    # Pad Sequence
-    batch_size = args.batch_size_per_gpu* args.n_gpu # Lets leave it at that for now 
-    def collate(examples: List[torch.Tensor]):
-        if tokenizer._pad_token is None:
-            return pad_sequence(examples, batch_first=True)
-        return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
-
-    # Sample from training dataset
-    print(f"Size of training data set is {len(train_dataset)}")
-    train_sampler = RandomSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset,sampler=train_sampler, batch_size=batch_size, collate_fn=collate, drop_last=True)
-
-    # Start Model and resize token embeddings
-    model.resize_token_embeddings(len(tokenizer))
-    no_decay = ["bias","LayerNorm.weight"]
-
-    optimizer_grouped_parameters = [
-           {
-               "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-               "weight_decay": args.weight_decay,
-           },
-           {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
-       ]
-
-    #total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
-    total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
+def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
 
     # Chose Adam as optimizer
     #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     #optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
-    # TODO: Load Checkpoints if available
+    cp_data = {"loss" : 0,"epoch": 1, "epoch_wise_loss" : [], "epoch_wise_valloss" : []}
+    ########################################
+    # Load Checkpoint
+    ########################################
+    if args.checkpoint_path != "":
+        print("Starting with checkpoint: "+args.checkpoint_path)
+        optimizer.load_state_dict(torch.load(args.checkpoint_path+'/optimizer.pt'))
+        cp_data = torch.load(args.checkpoint_path+'/cp_data.bin')
+        cp_data['epoch'] += 1 # Add a 1. Because it remembers last epoch not next one
+
+    # For main gpu 
+    tb_writer = SummaryWriter()
+
+    #Start Summary Writter
+    # Pad Sequence
+    batch_size = args.batch_size_per_gpu# Lets leave it at that for now 
+    def collate(examples: List[torch.Tensor]):
+        logger.info("Size of examples here is :"+str(len(examples)))
+        if tokenizer._pad_token is None:
+            # Will likey by this with GPTJ, so by default it will pad with 0
+            padded = pad_sequence(examples, batch_first=True)
+            return padded
+        return  pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
+
+    # Sample from training dataset
+    print(f"Size of training data set is {len(dataset)}")
+    train_sampler = RandomSampler(dataset)
+    train_dataloader = DataLoader(dataset,sampler=train_sampler, batch_size=batch_size, collate_fn=collate, drop_last=True)
+
+    # Start Model and resize token embeddings
+    #model.resize_token_embeddings(len(tokenizer))
+    # no_decay = ["bias","LayerNorm.weight"]
+
+    # optimizer_grouped_parameters = [
+           # {
+               # "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+               # "weight_decay": args.weight_decay,
+           # },
+           # {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
+       # ]
+
+    # TODO: Maybe do gradient accumulation again?
+    #total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
+    total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
+
+
     #  scheduler = get_linear_schedule_with_warmup(
     #      optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_training_steps
     #  )
 
     logger.info("***** Started training *****")
-    logger.info("  Num examples = %d", len(train_dataset))
+    logger.info("  Num examples = %d", len(dataset))
     logger.info("  Num Epochs = %d", args.num_train_epochs)
     #logger.info("  Instantaneous batch size per GPU = %d", args.per_gpu_train_batch_size)
     logger.info(
@@ -113,47 +127,47 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
     logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
     logger.info("  Total optimization steps = %d", total_training_steps)
 
-    # TODO load checkpoints
 
+    epoch = cp_data['epoch']
+    print("Starting with epoch " ,epoch)
     model.zero_grad() 
-    train_iterator = trange(0,int(args.num_train_epochs),desc="Epoch")
+    train_iterator = trange(epoch,int(args.num_train_epochs),desc="Epoch")
     global_step = 0
     logging_loss, tr_loss = 0.0,0.0
     set_seed(args.seed)
-    epoch_wise_loss = []
-    epoch_wise_valloss = []
+    epoch_wise_loss = cp_data['epoch_wise_loss']
+    epoch_wise_valloss = cp_data['epoch_wise_valloss']
+    
+    logger.info("Amount of memory used by dataset is :{}".format(sys.getsizeof(dataset)))
 
-
-    epoch = 0
     for _ in train_iterator:
-        within_epoch_iterator = tqdm(train_dataloader, desc="Iteration")
-        print('At epoch:',epoch)
+        within_epoch_iterator = tqdm(train_dataloader, desc="Iteration", leave=False)
         epoch += 1
-        for step, batch in enumerate(within_epoch_iterator):
-            inputs, labels = (batch, batch)
-            #  print("I will show you the input and the batch")
-            #  print(batch)
+        for batch in within_epoch_iterator:
+            inputs =  batch
+            masks = get_mask(inputs,0,tokenizer.eos_token_id)
 
-            print("At step: ", step)
+            masks = masks.to(args.device)
+
             # Skip Long Examples
             if inputs.shape[1] > 4096:
                 print("Skipping this example")
                 continue
 
-            #  inputs = inputs.to(args.device)
-            #  labels = labels.to(args.device)
             inputs = inputs.to(args.device)
-
+            # for i in inputs:
+                # print(tokenizer.decode(i))
             model.train()
-            #outputs  = model(inputs,labels=labels)
-            out  = model.forward(input_ids = inputs)
+
+            #outputs  = model(inputs,labels=labels) # THis is for useing the internal loss function
+            # TODO Maks for padding the batch 
+            out  = model.forward(input_ids = inputs,attention_mask= masks, use_cache=False)
 
             #loss = outputs[0]
             labels = inputs[:,1:].flatten()
             loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
             epoch_wise_loss.append(loss)
 
-            print(loss)
             loss.backward()
 
             tr_loss += loss.item()
@@ -164,8 +178,8 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
             optimizer.zero_grad()
             global_step+=1
 
-            print(f'Total loss so far : {tr_loss/global_step}')
             logger.info(f'Loss for epoch {epoch} is {tr_loss/global_step}')
+            within_epoch_iterator.set_description('Current Batch Loss: {}'.format(tr_loss/global_step))
 
             if global_step % args.logging_steps == 0:
                 tb_writer.add_scalar("loss", (tr_loss - logging_loss)/args.logging_steps)
@@ -173,12 +187,17 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
                 logging_loss = tr_loss
 
             if args.max_steps > 0 and global_step > args.max_steps:
-                epoch_iterator.close()
+                # epoch_iterator.close()
                 break
+            ### END OF BATCH ##
 
-        if global_step % args.checkpoint_interval == 0:
+        
+        ########################################
+        # End of Epoch Maintenance
+        ########################################
+        if epoch % args.checkpoint_interval == 0:
         #  if True:
-            output_dir = os.path.join(args.output_dir,"{}-{}".format("chkpnt",global_step))
+            output_dir = os.path.join(args.output_dir,"{}-{}-{}".format("chkpnt",epoch,global_step))
             os.makedirs(output_dir, exist_ok=True)
             model_to_save = model
 
@@ -188,10 +207,14 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
             torch.save(args, os.path.join(output_dir,"training_args.bin"))
 
             torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
-            print(f'Sving checkpoint at global step {global_step}')
+            cp_data['epoch'] = epoch
+            cp_data['loss'] = tr_loss/global_step
+            torch.save(cp_data, os.path.join(output_dir, "cp_data.bin"))
+            # print(f'Sving checkpoint at global step {global_step}')
             logger.info("\tLoss foar this training epoch was:%f", tr_loss/global_step)
         # For now we will evaluate on every epoch 
         if global_step% 1 == 0:
+            dataset.change_mode(0)
             val_score = evaluate(args, model, tokenizer, val_dataset)
             epoch_wise_valloss.append(val_score)
             # TODO compare validation results to see if there is no longer any improvement
@@ -210,10 +233,11 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
                     print(f'We have hit early stopping at epoch {epoch} saving and breaking now...')
                     
                     break
-        if args.max_steps > 0 and global_step > args.max_steps:
-            print("global steps has overcome max steps")
-            train_iterator.close()
-            break
+            dataset.change_mode(1)
+        # if args.max_steps > 0 and global_step > args.max_steps:
+            # print("global steps has overcome max steps")
+            # train_iterator.close()
+            # break
     tb_writer.close()
     avg_loss = tr_loss /global_step
     print(f"Finished with training with global_step:{global_step} and average loss {avg_loss}")
@@ -225,9 +249,10 @@ def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, eval_
     # Create output dir
     #  eval_output_dir = args.output_dir
     #  os.makedirs(eval_output_dir, exist_ok=True)
-    batch_size = args.batch_size_per_gpu* max(1, args.n_gpu)
+    batch_size = args.batch_size_per_gpu#* max(1, args.n_gpu)
 
     def collate(examples: List[torch.Tensor]):
+        print("Example batch looks like this: ", examples)
         if tokenizer._pad_token is None:
             return pad_sequence(examples, batch_first=True)
         return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)

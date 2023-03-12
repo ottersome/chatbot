@@ -107,7 +107,6 @@ def convert_to_int8(model):
     for module in list(model.modules()):
         for name, child in module.named_children():
             if isinstance(child, nn.Linear):
-                print(name, child)
                 setattr( 
                     module,
                     name,

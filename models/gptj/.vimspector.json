@@ -3,10 +3,11 @@
   "adapters": {
     "python-remote": {
       "port": "${port}",
-      "host": "140.113.144.129",
+      //"host": "140.113.144.129",
+      "host": "61.220.40.95",
       "launch": {
         "remote": {
-          "host": "140.113.144.129", // Remote host to ssh to
+          "host": "61.220.40.95", // Remote host to ssh to
                              // If omitted, runCommand(s) is run locally
           "account": "racc", // User to connect as (optional)
 
@@ -22,9 +23,10 @@
             "python", "-m", "debugpy",
             "--listen", "0.0.0.0:${port}",
             "--wait-for-client",
-            "chatter.py"
+            "trainer_entry.py --ds_path ../../datasets/fixed_ds.csv --device cuda --n_gpu 1"
           ]
-            //"trainer_entry.py --ds_path ../../datasets/conv_dataset.csv --device cuda --n_gpu 1"
+
+            //"chatter.py"
 
           // Optional alternative to runCommand (if you need to run multiple
           // commands)
@@ -119,7 +121,7 @@
         "request": "attach",
         "pathMappings": [
           {
-            "localRoot": "/home/ottersome/Projects/Huginns/Chatbot/models/gptj/",
+            "localRoot": "/Users/rac716/Projects/Huginns/Flow/models/gptj",
             "remoteRoot": "/home/racc/NLP/chatbot/models/gptj"
           }
         ]
@@ -133,10 +135,10 @@
         "console": "integratedTerminal",
         "type": "python",
         "request": "attach",
-        "python": "/home/ottersome/miniconda3/envs/datascience/bin/python",
+        "python": "/Users/rac716/miniforge3/envs/rs39/bin/python3.9",
         "pathMappings": [
           {
-            "localRoot": "/home/ottersome/Projects/Huginns/Chatbot/models/gptj/",
+            "localRoot": "/Users/rac716/Projects/Huginns/Flow/models/gptj",
             "remoteRoot": "/home/racc/NLP/chatbot/models/gptj"
           }
         ]
