@@ -7,7 +7,7 @@ import glob
 import random
 from typing import Dict, List, Tuple
 import pandas as pd
-from GPTJ8bit import *
+from GPT_RM import *
 import numpy as np
 from torch.nn.utils.rnn import pad_sequence
 
@@ -42,12 +42,12 @@ if __name__=='__main__':
     config = AutoConfig.from_pretrained(args.config_name, cache_dir=args.cache_dir)
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
     model = GPTJForCausalLM.from_pretrained("hivemind/gpt-j-6B-8bit", low_cpu_mem_usage=True)
+    print("Model before  adapters:")
+    print(model)
     add_adapters(model)
+    print("The model after adapters: ")
+    print(model)
 
     args.device = torch.device(args.device)
     model.to(args.device)
   
-    # TODO Need To Deal with checkpoints
-    print("The model lokos like : ")
-    print(model)
-    

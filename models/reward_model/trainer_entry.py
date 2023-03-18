@@ -7,7 +7,7 @@ import glob
 import random
 from typing import Dict, List, Tuple
 import pandas as pd
-from GPTJ8bit import *
+from GPT_RM import *
 import numpy as np
 from torch.nn.utils.rnn import pad_sequence
 

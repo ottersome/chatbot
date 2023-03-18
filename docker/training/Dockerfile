@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends  \
         sudo \
         locales \
         openssh-server \
+        screen \
         rsync \
         #openssh-clients \
         vim && \
@@ -35,7 +36,9 @@ COPY requirements.txt .
     #conda activate base && \
 ENV TORCH_CUDA_ARCH_LIST=Volta;Turing
 RUN conda run python -m pip install --no-cache-dir torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html && \
-    git clone https://github.com/NVIDIA/apex /tmp/apex
+    git clone https://github.com/NVIDIA/apex /tmp/apex && \
+    conda install transformers pandas tensorboardX tqdm ipywidgets scikit-learn && \
+    pip install bitsandbytes accelerate
 WORKDIR /tmp/apex
 RUN git checkout -b 22.04  remotes/origin/22.04-dev && \
     python -m pip install -v --disable-pip-version-check --no-cache-dir ./

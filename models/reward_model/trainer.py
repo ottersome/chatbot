@@ -146,6 +146,7 @@ def train(args, train_dataset, val_dataset, model: PreTrainedModel, tokenizer: P
 
             model.train()
             #outputs  = model(inputs,labels=labels)
+            print("Input Ids are : ")
             out  = model.forward(input_ids = inputs)
 
             #loss = outputs[0]

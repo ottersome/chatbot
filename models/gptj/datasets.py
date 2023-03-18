@@ -35,12 +35,12 @@ class BotDataset(Dataset):
 
             final_ds = []
             final_ds += self.load_ds(conv_df)
-            # final_ds += self.load_ds(ass_df)
+            final_ds += self.load_ds(ass_df)
             final_ds  = pd.DataFrame(final_ds)
 
             logger.info("Formatting Data Properly...")
             # Training Data in one file
-            for _,row in tqdm(final_ds.iterrows()):
+            for _,row in tqdm(final_ds.iterrows(), desc="Prepping Datasets"):
                 dialog = self.construct_convo(row,tokenizer)
                 if (len(dialog) > 0):
                     self.samples.append(dialog)# Single Row of df_train formatted for use

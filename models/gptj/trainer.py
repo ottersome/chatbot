@@ -15,12 +15,15 @@ import bitsandbytes as bnb
 import torch.nn.functional as F
 
 from datasets import *
+# from pytorch_memlab import LineProfiler, MemReporter
+# from GPUtil import showUtilization as gpu_usage
 
 from torch.nn.utils.rnn import pad_sequence
 from torch.nn.functional import pad
 from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
+import gc
 
 from pathlib import Path
 
@@ -56,23 +59,31 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 # TODO we must think about changing the way we process these prompt-> reponses
 # I dont t like these proces of "adding context".
-#
-     
+
+def save_checkpoint(model, optimizer, args,tinfo, dataloader):
+    output_dir = os.path.join(args.output_dir,"{}-{}-{}".format("chkpnt",tinfo['epoch'],tinfo['global_step']))
+    os.makedirs(output_dir, exist_ok=True)
+    logger.info("Saving model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
+
+    torch.save(model.module.state_dict(),os.path.join(output_dir,"model_state_dict.pt"))
+    torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
+    torch.save(tinfo, os.path.join(output_dir, "tinfo.bin"))
+    
 def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
 
     # Chose Adam as optimizer
     #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     #optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
-    cp_data = {"loss" : 0,"epoch": 1, "epoch_wise_loss" : [], "epoch_wise_valloss" : []}
+    tinfo = {"loss" : 0,"epoch": 1,"global_step" : 0 ,"epoch_wise_loss" : [], "epoch_wise_valloss" : []}
     ########################################
     # Load Checkpoint
     ########################################
     if args.checkpoint_path != "":
         print("Starting with checkpoint: "+args.checkpoint_path)
         optimizer.load_state_dict(torch.load(args.checkpoint_path+'/optimizer.pt'))
-        cp_data = torch.load(args.checkpoint_path+'/cp_data.bin')
-        cp_data['epoch'] += 1 # Add a 1. Because it remembers last epoch not next one
+        tinfo = torch.load(args.checkpoint_path+'/tinfo.bin')
+        tinfo['epoch'] += 1 # Add a 1. Because it remembers last epoch not next one
 
     # For main gpu 
     tb_writer = SummaryWriter()
@@ -128,21 +139,20 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
     logger.info("  Total optimization steps = %d", total_training_steps)
 
 
-    epoch = cp_data['epoch']
-    print("Starting with epoch " ,epoch)
+    print("Starting with epoch " ,tinfo['epoch'])
     model.zero_grad() 
-    train_iterator = trange(epoch,int(args.num_train_epochs),desc="Epoch")
-    global_step = 0
-    logging_loss, tr_loss = 0.0,0.0
+    train_iterator = trange(tinfo['epoch'],int(args.num_train_epochs),desc="Epoch")
+    tinfo['global_step'] = 0
+    tr_loss = 0.0
     set_seed(args.seed)
-    epoch_wise_loss = cp_data['epoch_wise_loss']
-    epoch_wise_valloss = cp_data['epoch_wise_valloss']
+    epoch_wise_valloss = tinfo['epoch_wise_valloss']
     
-    logger.info("Amount of memory used by dataset is :{}".format(sys.getsizeof(dataset)))
+
+    logger.info("We will do savings per batch : {}".format(int(0.1*(dataset.len()/args.batch_size_per_gpu))))
 
     for _ in train_iterator:
         within_epoch_iterator = tqdm(train_dataloader, desc="Iteration", leave=False)
-        epoch += 1
+        tinfo['epoch'] += 1
         for batch in within_epoch_iterator:
             inputs =  batch
             masks = get_mask(inputs,0,tokenizer.eos_token_id)
@@ -155,96 +165,71 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
                 continue
 
             inputs = inputs.to(args.device)
-            # for i in inputs:
-                # print(tokenizer.decode(i))
             model.train()
 
             #outputs  = model(inputs,labels=labels) # THis is for useing the internal loss function
             # TODO Maks for padding the batch 
-            logger.info("Lenght of sttring: {}".format(inputs.shape) )
-            extra_zeros = torch.tensor([[0]]*inputs.shape[0]).to(args.device)
-            labels = torch.cat([inputs[:,1:], extra_zeros],axis=1)
-            print("Labels dimension: ", labels.shape)
-            print("Size of inputs : ",inputs.shape)
-            print("Size of target : ",labels.shape)
-            out  = model.forward(input_ids = inputs,labels=labels,attention_mask= masks, use_cache=False)
+            logger.info("Length of sttring: {}".format(inputs.shape) )
+            # extra_zeros = torch.tensor([[0]]*inputs.shape[0]).to(args.device)
+            # labels = torch.cat([inputs[:,1:], extra_zeros],axis=1)
+            # Labels can be set = inputs segun la documentacion
+            out  = model.forward(input_ids = inputs,labels=inputs,attention_mask= masks, use_cache=False)
             loss = out[0].mean()
-            print("Loss is : {}".format(loss))
 
             #loss = outputs[0]
             # loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
-            epoch_wise_loss.append(loss)
+            tinfo['epoch_wise_loss'].append(loss.mean().item())
 
             loss.backward()
-
             tr_loss += loss.item()
 
             # Here we might use accumulation steps
             optimizer.step()
             #  scheduler.step()
             optimizer.zero_grad()
-            global_step+=1
+            tinfo['global_step']+=1
 
-            logger.info(f'Loss for epoch {epoch} is {tr_loss/global_step}')
-            within_epoch_iterator.set_description('Current Batch Loss: {}'.format(tr_loss/global_step))
+            logger.info(f"Loss for epoch {tinfo['epoch']}, global steo {tinfo['global_step']} is {tr_loss/tinfo['global_step']}")
+            within_epoch_iterator.set_description('Current Batch Loss: {}'.format(tr_loss/tinfo['global_step']))
 
-            if global_step % args.logging_steps == 0:
-                tb_writer.add_scalar("loss", (tr_loss - logging_loss)/args.logging_steps)
-                
-                logging_loss = tr_loss
-
-            if args.max_steps > 0 and global_step > args.max_steps:
-                # epoch_iterator.close()
-                break
+            del inputs, masks, out, loss, batch
+            torch.cuda.empty_cache()
+            gc.collect()
             ### END OF BATCH ##
 
+            if tinfo['global_step'] % int(0.1*(dataset.len()/args.batch_size_per_gpu)) == 0:
+                save_checkpoint(model, optimizer,args,tinfo)
         
         ########################################
         # End of Epoch Maintenance
         ########################################
-        if epoch % args.checkpoint_interval == 0:
-        #  if True:
-            output_dir = os.path.join(args.output_dir,"{}-{}-{}".format("chkpnt",epoch,global_step))
-            os.makedirs(output_dir, exist_ok=True)
-            model_to_save = model
+        if tinfo['epoch']  % checkpoint_interval:
+            save_checkpoint(model, optimizer,args,tinfo)
+        # Test
+        dataset.change_mode(0)
+        val_score = evaluate(args, model, tokenizer, val_dataset)
+        tinfo['epoch_wise_valloss'].append(val_score)
+        # TODO compare validation results to see if there is no longer any improvement
+        logger.info(f"Validation loss(perplexity) for epoch {tinfo['epoch']} is {val_score}")
+        if len(tinfo['epoch_wise_vallos']) > 3 :
+            threshold_crossed  = (tinfo['epoch_wise_valloss'][-1]-tinfo['epoch_wise_valloss'][-2] > 0 ) \
+                    and (tinfo['epoch_wise_valloss'][-2]-tinfo['epoch_wise_valloss'][-3] > 0 )
+            if threshold_crossed:
+                output_dir = os.path.join(args.output_dir,"{}-{}".format("early_stop",global_step))
+                os.makedirs(output_dir,exist_ok=True)
+                logger.info('We have detected an increase in validation loss in two consecutive epochs.')
+                logger.info('We will now save this model and stop trianing ')
 
-            #  model_to_save.save_pretrained(output_dir)
-            #  tokenizer.save_pretrained(output_dir)
-            torch.save(model.state_dict(),os.path.join(output_dir,"model_state_dict.pt"))
-            torch.save(args, os.path.join(output_dir,"training_args.bin"))
+                save_checkpoint(model, optimizer,args, tinfo)
+                torch.save(epoch_wise_valloss,os.path.join(output_dir,'valloss.pt'))
+                torch.save(epoch_wise_loss,os.path.join(output_dir,'loss.pt'))
+                torch.save(optimizer.state_dict(),os.path.join(output_dir,'optimizer.pt'))
+                print(f'We have hit early stopping at epoch {tinfo["epoch"]} saving and breaking now...')
+                
+                break
+        dataset.change_mode(1)
 
-            torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
-            cp_data['epoch'] = epoch
-            cp_data['loss'] = tr_loss/global_step
-            torch.save(cp_data, os.path.join(output_dir, "cp_data.bin"))
-            # print(f'Sving checkpoint at global step {global_step}')
-            logger.info("\tLoss foar this training epoch was:%f", tr_loss/global_step)
-        # For now we will evaluate on every epoch 
-        if global_step% 1 == 0:
-            dataset.change_mode(0)
-            val_score = evaluate(args, model, tokenizer, val_dataset)
-            epoch_wise_valloss.append(val_score)
-            # TODO compare validation results to see if there is no longer any improvement
-            logger.info(f'Validation loss(perplexity) for epoch {epoch} is {val_score}')
-            if len(epoch_wise_valloss) > 3 :
-                threshold_crossed  = (epoch_wise_valloss[-1]-epoch_wise_valloss[-2] > 0 ) and (epoch_wise_valloss[-2]-epoch_wise_valloss[-3] > 0 )
-                if threshold_crossed:
-                    output_dir = os.path.join(args.output_dir,"{}-{}".format("early_stop",global_step))
-                    os.makedirs(output_dir,exist_ok=True)
-                    logger.info('We have detected an increase in validation loss in two consecutive epochs.')
-                    logger.info('We will now save this model and stop trianing ')
-
-                    torch.save(epoch_wise_valloss,os.path.join(output_dir,'valloss.pt'))
-                    torch.save(epoch_wise_loss,os.path.join(output_dir,'loss.pt'))
-                    torch.save(optimizer.state_dict(),os.path.join(output_dir,'optimizer.pt'))
-                    print(f'We have hit early stopping at epoch {epoch} saving and breaking now...')
-                    
-                    break
-            dataset.change_mode(1)
-        # if args.max_steps > 0 and global_step > args.max_steps:
-            # print("global steps has overcome max steps")
-            # train_iterator.close()
-            # break
+    train_iterator.close()
     tb_writer.close()
     avg_loss = tr_loss /global_step
     print(f"Finished with training with global_step:{global_step} and average loss {avg_loss}")

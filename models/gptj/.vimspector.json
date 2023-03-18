@@ -3,11 +3,11 @@
   "adapters": {
     "python-remote": {
       "port": "${port}",
-      //"host": "140.113.144.129",
-      "host": "61.220.40.95",
+      "host": "140.113.144.129",
+      //"host": "61.220.40.95",
       "launch": {
         "remote": {
-          "host": "61.220.40.95", // Remote host to ssh to
+          "host": "140.113.144.129",
                              // If omitted, runCommand(s) is run locally
           "account": "racc", // User to connect as (optional)
 

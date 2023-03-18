@@ -36,7 +36,7 @@ def parse_args():
                         type=str)
     parser.add_argument("--checkpoint_interval",
                         dest='checkpoint_interval',
-                        default=5,
+                        default=1,
                         type=int)
     parser.add_argument("--checkpoint_path",
                         dest='checkpoint_path',

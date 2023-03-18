@@ -1,6 +1,7 @@
 import transformers
 
 import torch
+from torch import *
 import torch.nn.functional as F
 from torch import nn
 from torch.cuda.amp import custom_fwd, custom_bwd
@@ -8,6 +9,13 @@ from torch.cuda.amp import custom_fwd, custom_bwd
 from bitsandbytes.functional import quantize_blockwise, dequantize_blockwise
 
 from tqdm.auto import tqdm
+
+class EloLoss(nn.module):
+    def __init__(self):
+        super(EloLoss, self).__init__()
+    def forward(self, output, target):
+        # We wil llikely receive batches here
+
 
 class FrozenBNBLinear(nn.Module):
     def __init__(self, weight, absmax, code, bias=None):
@@ -107,7 +115,7 @@ def convert_to_int8(model):
     for module in list(model.modules()):
         for name, child in module.named_children():
             if isinstance(child, nn.Linear):
-                print(name, child)
+                # print(name, child)
                 setattr( 
                     module,
                     name,
@@ -129,6 +137,8 @@ def convert_to_int8(model):
                     )
                 )
 
+# I think the model we use for pretraining has already ran this 
+# on the original GPT-J 6B
 class GPTJBlock(transformers.models.gptj.modeling_gptj.GPTJBlock):
     def __init__(self, config):
         super().__init__(config)
@@ -138,16 +148,93 @@ class GPTJBlock(transformers.models.gptj.modeling_gptj.GPTJBlock):
 
 
 # Doesnt Seem to be getting used
+# -> THis is because this boy is for MOdels without the Linear Matrix Head
+# -> (The one that does class classification)
 class GPTJModel(transformers.models.gptj.modeling_gptj.GPTJModel):
     def __init__(self, config):
         super().__init__(config)
         convert_to_int8(self)
         
-
 class GPTJForCausalLM(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
     def __init__(self, config):
         super().__init__(config)
         convert_to_int8(self)
+
+    def forward(
+        self,
+        input_ids=None,
+        past_key_values=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        labels=None,
+        use_cache=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+    ):
+        r"""
+        labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`):
+            Labels for language modeling. Note that the labels **are shifted** inside the model, i.e. you can set
+            ``labels = input_ids`` Indices are selected in ``[-100, 0, ..., config.vocab_size]`` All labels set to
+            ``-100`` are ignored (masked), the loss is only computed for labels in ``[0, ..., config.vocab_size]``
+        """
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        transformer_outputs = self.transformer(
+            input_ids,
+            past_key_values=past_key_values,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        # This might be every single hiddden vector the transformer_output
+        # outputs for every word in the given sentence.
+        # information 
+        hidden_states = transformer_outputs[0]
+
+        # Set device for model parallelism
+        if self.model_parallel:
+            torch.cuda.set_device(self.transformer.first_device)
+            hidden_states = hidden_states.to(self.lm_head.weight.device)
+
+        # make sure sampling in fp16 works correctly and
+        # compute loss in fp32 to match with mesh-tf version
+        # https://github.com/EleutherAI/gpt-neo/blob/89ce74164da2fb16179106f54e2269b5da8db333/models/gpt2/gpt2.py#L179
+        lm_logits = self.lm_head(hidden_states).to(torch.float32)
+        # This gives memy scalar 
+
+        loss = None
+        if labels is not None:
+            # Shift so that tokens < n predict n
+            shift_logits = lm_logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            # Flatten the tokens
+            loss_fct = CrossEntropyLoss()
+            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+
+            loss = loss.to(hidden_states.dtype)
+
+        if not return_dict:     
+            output = (lm_logits,) + transformer_outputs[1:]
+            return ((loss,) + output) if loss is not None else output
+
+        return CausalLMOutputWithPast(
+            loss=loss,
+            logits=lm_logits,
+            past_key_values=transformer_outputs.past_key_values,
+            hidden_states=transformer_outputs.hidden_states,
+            attentions=transformer_outputs.attentions,
+        )
+
 
 def add_adapters(model, adapter_dim=16):
     assert adapter_dim > 0
@@ -168,7 +255,12 @@ def add_adapters(model, adapter_dim=16):
             nn.init.zeros_(module.adapter[1].weight)
 
     # Replace Category logits to scalar output
-    last_layer =  model.get_submodule('lm_head')
+    print("Last Module is :")
+    print(model.lm_head)
+    print("With In features : ")
+    print(model.lm_head.in_features)
+    # We will train this as the Scalar Ranker
+    model.lm_head = nn.Linear(model.lm_head.in_features, 1,bias=False)
 
 
 
