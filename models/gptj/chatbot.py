@@ -3,6 +3,7 @@ import torch
 import logging
 from datetime import datetime
 from GPTJ8bit import *
+from pathlib import Path
 
 from torch.nn.utils.rnn import pad_sequence
 from transformers import utils
@@ -43,36 +44,38 @@ else:
 
 
 # Let's chat for 5 lines
-#
+stem = Path(sys.argv[1]).stem
 now = datetime.now()
-logging.basicConfig(filename=now.strftime('./chats/%Y-%m-%d_%H:%M:%S'),
+logging.basicConfig(filename=now.strftime('./chats/ckpnt_{}_%Y-%m-%d_%H:%M:%S'.format(stem)),
                     filemode='a',
                     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
                     datefmt='%H:%M:%S',
-                    level=logging.INFO)
+                    level=logging.DEBUG)
 
+logging.info("Starting the debugging")
 cur_length = 0
 # print('Conversation Starts:')
 while True:
     # encode the new user input, add the eos_token and return a tensor in Pytorch
     user_input = input("")
     logging.info("User: " +user_input)
-    new_user_input_ids = tokenizer(user_input + tokenizer.eos_token, return_tensors='pt')
+    user_input = tokenizer.eos_token.join(user_input.split('|')) 
+
+    logging.debug("Formatting input to  :{}".format(user_input))
+    
+    new_user_input_ids = tokenizer(user_input, return_tensors='pt')
     new_user_input_ids  = new_user_input_ids.to(device)
     # print(new_user_input_ids)
 
     # append the new user input tokens to the chat history
-    bot_input_ids = torch.cat([nth_output, new_user_input_ids['input_ids']], dim=-1) if cur_length > 0 else new_user_input_ids['input_ids']
-    cur_length = bot_input_ids.shape[-1]
+    # Create the mask.
 
     # generated a response while limiting the total chat history to 1000 tokens, 
-    nth_output = model.generate(input_ids=bot_input_ids,max_length=2048, do_sample=True)
+    nth_output = model.generate(input_ids=new_user_input_ids['input_ids'],max_length=2048, do_sample=True)
+    cur_length = new_user_input_ids['input_ids'].shape[-1]
     
-    decoded_output = tokenizer.decode(nth_output[0][cur_length:], max_length=cur_length+1000, skip_special_tokens=True, pad_token_id =0)
+    decoded_output = tokenizer.decode(nth_output[0][cur_length:], max_length=cur_length+1000, skip_special_tokens=True, temperature=0.9, pad_token_id =0)
     logging.info('Bot: '+decoded_output)
-    # pretty print last ouput tokens from bot
-    # print("botinput ids: ", bot_input_ids)
-    # print("Nth output:\n\t", nth_output)
 
     # print("{}".format(len(nth_output[0]),decoded_output))
     print("{}".format(decoded_output))
