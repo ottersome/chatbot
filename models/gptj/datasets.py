@@ -30,7 +30,7 @@ class BotDataset(Dataset):
         else:
             logger.info("Creating cache of features from dataset at %s", cached_features_file)
 
-            conv_df = pd.read_csv('../../data_collection/fixed_ds.csv', sep='|')
+            conv_df = pd.read_csv('../../datasets/fixed_ds.csv', sep='|')
             ass_df = pd.read_parquet('../../datasets/assitantprompt.parquet', engine='pyarrow')
 
             final_ds = []
@@ -55,6 +55,11 @@ class BotDataset(Dataset):
 
     def change_mode(self,is_train: bool):
         self.is_train = is_train
+
+    # TODO implement
+    def load_txt(self, file):
+        pass
+
 
     def load_ds(self,df):
 

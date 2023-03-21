@@ -148,10 +148,10 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
     epoch_wise_valloss = tinfo['epoch_wise_valloss']
     
 
-    logger.info("We will do savings per batch : {}".format(int(0.1*(dataset.len()/args.batch_size_per_gpu))))
+    logger.info("We will do savings per batch : {}".format(int(0.001*(dataset.len()/args.batch_size_per_gpu))))
 
     for _ in train_iterator:
-        within_epoch_iterator = tqdm(train_dataloader, init=tinfo['saved_step'],desc="Iteration", leave=False)
+        within_epoch_iterator = tqdm(train_dataloader, initial=tinfo['saved_step'],desc="Iteration", leave=False)
         tinfo['epoch'] += 1
         for batch in within_epoch_iterator:
             inputs =  batch
@@ -198,7 +198,7 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
             tinfo['saved_step'] +=1
             ### END OF BATCH ##
 
-            if tinfo['global_step'] % int(0.1*(dataset.len()/args.batch_size_per_gpu)) == 0:
+            if tinfo['global_step'] % int(0.001*(dataset.len()/args.batch_size_per_gpu)) == 0:
                 save_checkpoint(model, optimizer,args,tinfo)
         
         tinfo['saved_step'] =0
