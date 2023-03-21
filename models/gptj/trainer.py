@@ -60,7 +60,7 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 # TODO we must think about changing the way we process these prompt-> reponses
 # I dont t like these proces of "adding context".
 
-def save_checkpoint(model, optimizer, args,tinfo, dataloader):
+def save_checkpoint(model, optimizer, args,tinfo):
     output_dir = os.path.join(args.output_dir,"{}-{}-{}".format("chkpnt",tinfo['epoch'],tinfo['global_step']))
     os.makedirs(output_dir, exist_ok=True)
     logger.info("Saving model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
@@ -75,7 +75,7 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
     #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     #optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
-    tinfo = {"loss" : 0,"epoch": 1,"global_step" : 0 ,"epoch_wise_loss" : [], "epoch_wise_valloss" : []}
+    tinfo = {"loss" : 0,"epoch": 1,"global_step" : 0 , "saved_step" : 0,"epoch_wise_loss" : [], "epoch_wise_valloss" : []}
     ########################################
     # Load Checkpoint
     ########################################
@@ -151,7 +151,7 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
     logger.info("We will do savings per batch : {}".format(int(0.1*(dataset.len()/args.batch_size_per_gpu))))
 
     for _ in train_iterator:
-        within_epoch_iterator = tqdm(train_dataloader, desc="Iteration", leave=False)
+        within_epoch_iterator = tqdm(train_dataloader, init=tinfo['saved_step'],desc="Iteration", leave=False)
         tinfo['epoch'] += 1
         for batch in within_epoch_iterator:
             inputs =  batch
@@ -195,19 +195,21 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
             del inputs, masks, out, loss, batch
             torch.cuda.empty_cache()
             gc.collect()
+            tinfo['saved_step'] +=1
             ### END OF BATCH ##
 
             if tinfo['global_step'] % int(0.1*(dataset.len()/args.batch_size_per_gpu)) == 0:
                 save_checkpoint(model, optimizer,args,tinfo)
         
+        tinfo['saved_step'] =0
         ########################################
         # End of Epoch Maintenance
         ########################################
-        if tinfo['epoch']  % checkpoint_interval:
+        if tinfo['epoch']  % args.checkpoint_interval:
             save_checkpoint(model, optimizer,args,tinfo)
         # Test
         dataset.change_mode(0)
-        val_score = evaluate(args, model, tokenizer, val_dataset)
+        val_score = evaluate(args, model, tokenizer, dataset)
         tinfo['epoch_wise_valloss'].append(val_score)
         # TODO compare validation results to see if there is no longer any improvement
         logger.info(f"Validation loss(perplexity) for epoch {tinfo['epoch']} is {val_score}")
@@ -215,14 +217,14 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
             threshold_crossed  = (tinfo['epoch_wise_valloss'][-1]-tinfo['epoch_wise_valloss'][-2] > 0 ) \
                     and (tinfo['epoch_wise_valloss'][-2]-tinfo['epoch_wise_valloss'][-3] > 0 )
             if threshold_crossed:
-                output_dir = os.path.join(args.output_dir,"{}-{}".format("early_stop",global_step))
+                output_dir = os.path.join(args.output_dir,"{}-{}".format("early_stop",tinfo['global_step']))
                 os.makedirs(output_dir,exist_ok=True)
                 logger.info('We have detected an increase in validation loss in two consecutive epochs.')
                 logger.info('We will now save this model and stop trianing ')
 
                 save_checkpoint(model, optimizer,args, tinfo)
-                torch.save(epoch_wise_valloss,os.path.join(output_dir,'valloss.pt'))
-                torch.save(epoch_wise_loss,os.path.join(output_dir,'loss.pt'))
+                torch.save(tinfo['epoch_wise_valloss'],os.path.join(output_dir,'valloss.pt'))
+                torch.save(tinfo['epoch_wise_loss'],os.path.join(output_dir,'loss.pt'))
                 torch.save(optimizer.state_dict(),os.path.join(output_dir,'optimizer.pt'))
                 print(f'We have hit early stopping at epoch {tinfo["epoch"]} saving and breaking now...')
                 
@@ -231,7 +233,7 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
 
     train_iterator.close()
     tb_writer.close()
-    avg_loss = tr_loss /global_step
+    avg_loss = tr_loss /tinfo['global_step']
     print(f"Finished with training with global_step:{global_step} and average loss {avg_loss}")
     return global_step, avg_loss
 
