@@ -56,8 +56,14 @@ logging.info("Starting the debugging")
 cur_length = 0
 # print('Conversation Starts:')
 while True:
+    #
     # encode the new user input, add the eos_token and return a tensor in Pytorch
-    user_input = input("")
+    user_input = ""
+    while('\r' not in user_input):
+        user_input += input("") 
+
+    app_idx = user_input.find('\r')
+    user_input = user_input[:app_idx] 
     logging.info("User: " +user_input)
     user_input = tokenizer.eos_token.join(user_input.split('|')) 
 

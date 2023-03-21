@@ -23,7 +23,7 @@ class Queue {
         //Just do linear search as there is no ordering to enforce
         //TODO: Fix this hack of using a string instead of the actual number
         for(var i = 0;i < this.size();i++)
-            if (this.items[i].num == num)
+            if (this.items[i] == num)
                 return true
         return false
     }

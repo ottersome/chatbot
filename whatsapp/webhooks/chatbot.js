@@ -72,7 +72,10 @@ betty.stdout.on('data',async (data) => {
     let serviced_user = await retrieve_user(curr_dequeue)
     //Send Response to User
     console.log("Bot responded to user "+serviced_user.name+": " + data)
-    let response = data.toString().replace(/(\r\n|\n|\r)/gm, "");
+    //let response = data.toString().replace(/(\r\n|\n|\r)/gm, "");
+    let response = data.toString()
+    let last_index= response.lastIndexOf('\n')
+    response = response.slice(0,last_index)
     send_response(serviced_user.num, response, serviced_user.pnum_id)
 
     //Save Response
@@ -102,7 +105,7 @@ function save_utterance(uid, pnum, text, isbot){
 
 function write_to_betty(txt){
     //Check if we have cached history
-    betty.stdin.write(txt+'\n')
+    betty.stdin.write(txt+'\r\n')
 }
 
 async function create_user_in_db(users_name, users_num, pnum_id){
