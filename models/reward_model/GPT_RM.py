@@ -10,10 +10,11 @@ from bitsandbytes.functional import quantize_blockwise, dequantize_blockwise
 
 from tqdm.auto import tqdm
 
-class EloLoss(nn.module):
+class EloLoss(nn.Module):
     def __init__(self):
         super(EloLoss, self).__init__()
     def forward(self, output, target):
+        pass
         # We wil llikely receive batches here
 
 
@@ -65,6 +66,7 @@ class DequantizeAndLinear(torch.autograd.Function):
         return grad_input, None, None, None, grad_bias
  
  
+# Remeber, only a single layer of these in the entire stack. 
 class FrozenBNBEmbedding(nn.Module):
     def __init__(self, weight, absmax, code):
         super().__init__()
@@ -114,7 +116,7 @@ def convert_to_int8(model):
     """Convert linear and embedding modules to 8-bit with optional adapters"""
     for module in list(model.modules()):
         for name, child in module.named_children():
-            if isinstance(child, nn.Linear):
+            if isinstance(child, nn.Linear) and name != 'val_head':# Lm_head is replaced here so its not needed to be that way
                 # print(name, child)
                 setattr( 
                     module,
@@ -154,10 +156,13 @@ class GPTJModel(transformers.models.gptj.modeling_gptj.GPTJModel):
     def __init__(self, config):
         super().__init__(config)
         convert_to_int8(self)
+
+
         
-class GPTJForCausalLM(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
+class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
     def __init__(self, config):
         super().__init__(config)
+        self.val_head = nn.Linear(config.n_embd, 1,bias=False)
         convert_to_int8(self)
 
     def forward(
@@ -175,7 +180,7 @@ class GPTJForCausalLM(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
         output_hidden_states=None,
         return_dict=None,
     ):
-        r"""
+        """
         labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`):
             Labels for language modeling. Note that the labels **are shifted** inside the model, i.e. you can set
             ``labels = input_ids`` Indices are selected in ``[-100, 0, ..., config.vocab_size]`` All labels set to
@@ -204,7 +209,7 @@ class GPTJForCausalLM(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
         # Set device for model parallelism
         if self.model_parallel:
             torch.cuda.set_device(self.transformer.first_device)
-            hidden_states = hidden_states.to(self.lm_head.weight.device)
+            hidden_states = hidden_states.to(self.val_head.weight.device)
 
         # make sure sampling in fp16 works correctly and
         # compute loss in fp32 to match with mesh-tf version
@@ -213,15 +218,7 @@ class GPTJForCausalLM(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
         # This gives memy scalar 
 
         loss = None
-        if labels is not None:
-            # Shift so that tokens < n predict n
-            shift_logits = lm_logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
-            loss_fct = CrossEntropyLoss()
-            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-
-            loss = loss.to(hidden_states.dtype)
+        assert labels == None, print('We are not yet working with labels')
 
         if not return_dict:     
             output = (lm_logits,) + transformer_outputs[1:]
@@ -235,6 +232,21 @@ class GPTJForCausalLM(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
             attentions=transformer_outputs.attentions,
         )
 
+# class GPTJForCausalLM(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
+
+    # def __init__(self, config):
+        # super().__init__(config)
+        # self.lm_head = nn.Linear(config.n_embd, 1,bias=False)
+        # convert_to_int8(self)
+        # #self.lm_head = nn.Linear(self.lm_head.in_features, 1,bias=False)
+        
+        # # Replace Category logits to scalar output
+        # print("Last Module is :")
+        # print(self.lm_head)
+        # print("With In features : ")
+        # print(self.lm_head.in_features)
+        # # We will train this as the Scalar Ranker
+        # print('Done with this')
 
 def add_adapters(model, adapter_dim=16):
     assert adapter_dim > 0
@@ -254,13 +266,6 @@ def add_adapters(model, adapter_dim=16):
             )
             nn.init.zeros_(module.adapter[1].weight)
 
-    # Replace Category logits to scalar output
-    print("Last Module is :")
-    print(model.lm_head)
-    print("With In features : ")
-    print(model.lm_head.in_features)
-    # We will train this as the Scalar Ranker
-    model.lm_head = nn.Linear(model.lm_head.in_features, 1,bias=False)
 
 
 

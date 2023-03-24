@@ -1,0 +1,148 @@
+
+{
+  "adapters": {
+    "python-remote": {
+      "port": "${port}",
+      "host": "140.113.144.129",
+      //"host": "61.220.40.95",
+      "launch": {
+        "remote": {
+          "host": "140.113.144.129",
+                             // If omitted, runCommand(s) is run locally
+          "account": "racc", // User to connect as (optional)
+
+          // Optional.... Manual additional arguments for ssh
+          // "ssh": {
+          //   "args": [ "-o", "StrictHostKeyChecking=no" ]
+          // },
+
+          // Command to launch the debuggee and attach the debugger;
+          // %CMD% replaced with the remote-cmdLine configured in the launch
+          // configuration. (mandatory)
+          "runCommand": [
+            "python", "-m", "debugpy",
+            "--listen", "0.0.0.0:${port}",
+            "--wait-for-client",
+            "trainer_entry.py --ds_path . --device cuda --n_gpu 1"
+          ]
+
+            //"chatter.py"
+
+          // Optional alternative to runCommand (if you need to run multiple
+          // commands)
+          // "runCommands":  [
+          //   [ /* first command */ ],
+          //   [ /* second command */ ]
+          // ]
+
+        }
+
+        // optional delay to wait after running runCommand(s). This is often
+        // needed because of the way docker handles TCP, or if you're using some
+        // wrapper (e.g. to start the JVM)
+        // "delay": "1000m" // format as per :help sleep
+      },
+      "attach": {
+        "remote": {
+          "host": "${host}", // Remote host to ssh to
+                             // If omitted, runCommand(s) is run locally
+          "account": "${account}", // User to connect as (optional)
+          // Command to get the PID of the process to attach  (mandatory)
+          "pidCommand": [
+            //
+            // Remember that you can use ${var} to ask for input. I use this to
+            // call a custom command to return the PID for a named service, so
+            // here's an examle:
+            //
+            "ls", "-lah"
+          ],
+
+          // Command to attach the debugger; %PID% replaced with output of
+          // pidCommand above (mandatory)
+          "attachCommand": [
+            "python", "-m", "debugpy", "--listen", "0.0.0.0:${port}",
+            "--pid", "2945309"
+          ]
+
+          // Optional alternative to attachCommand (if you need to run multiple
+          // commands)
+          // "attachCommands":  [
+          //   [ /* first command */ ],
+          //   [ /* second command */ ]
+          // ],
+
+          // Optional.... useful with buggy gdbservers to kill -TRAP %PID%
+          // "initCompleteCommand": [
+          //   /* optional command to run after initialized */
+          // ]
+
+          // Optional.... Manual additional arguments for ssh
+          // "ssh": {
+          //   "args": [ "-o", "StrictHostKeyChecking=no" ]
+          // },
+        }
+        // optional delay to wait after running runCommand(s). This is often
+        // needed because of the way docker handles TCP, or if you're using some
+        // wrapper (e.g. to start the JVM)
+        // "delay": "1000m" // format as per :help sleep
+      }
+    }
+  },
+  "configurations": {
+    "remote-launch": {
+      "adapter": "python-remote",
+
+      "remote-request": "launch",
+      "remote-cmdLine": [
+        "/home/racc/NLP/chatbot/models/reward_model/${fileBasename}", "*${args}"
+      ],
+
+      "configuration": {
+        "request": "attach",
+        "pathMappings": [
+          {
+            "localRoot": "${workspaceRoot}",
+            "remoteRoot": "/home/racc/NLP/chatbot/models/reward_model"
+          }
+        ]
+      }
+    },
+    "remote-attach": {
+      "variables": {
+        // Just an example of how to specify a variable manually rather than
+        // vimspector asking for input from the user
+        "ServiceName": "${fileBasenameNoExtension}"
+      },
+
+      "adapter": "python-remote",
+      "remote-request": "attach",
+
+      "configuration": {
+        "request": "attach",
+        "pathMappings": [
+          {
+            "localRoot": "/Users/rac716/Projects/Huginns/Flow/models/reward_model",
+            "remoteRoot": "/home/racc/NLP/chatbot/models/reward_model"
+          }
+        ]
+      }
+    },
+    "Runny: Launch": {
+      "adapter": "multi-session",
+      "filetypes": [ "python" ],
+      "configuration": {
+        "name": "Runny: Launch",
+        "console": "integratedTerminal",
+        "type": "python",
+        "request": "attach",
+        "python": "/Users/rac716/miniforge3/envs/rs39/bin/python3.9",
+        "pathMappings": [
+          {
+            "localRoot": "/Users/rac716/Projects/Huginns/Flow/models/reward_model",
+            "remoteRoot": "/home/racc/NLP/chatbot/models/reward_model"
+          }
+        ]
+      }
+    }
+  }
+}

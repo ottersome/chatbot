@@ -62,7 +62,7 @@ const queue = new queue_class()
 
 //Initialize the bot here
 let betty = spawn('/home/racc/miniconda3/envs/racc_res/bin/python3.8',
-    ['/home/racc/NLP/chatbot/models/gptj/chatbot.py','/home/racc/NLP/chatbot/models/gptj/output/chkpnt-2-1186'])
+    ['/home/racc/NLP/chatbot/models/gptj/chatbot.py','/home/racc/NLP/chatbot/models/gptj/output/chkpnt-2-4151'])
 betty.stdout.setEncoding('utf8')
 
 betty.stdout.on('data',async (data) => {
@@ -160,11 +160,13 @@ async function retrieve_user(user_pnum){
         cached_user = await retrieve_user_from_db(user_pnum)
     }
     //Check for context that is too long
-    let len = cached_user.history.length
-    while(len > 1800){//TODO make it a bit better
+    let hist_len = cached_user.history.length
+    //I think here is the problem
+    while(hist_len > 1800){//TODO make it a bit better
+        console.log('Context is at length '+hist_len)
         let first_sep = cached_user.history.indexOf("|")
-        cached_user.history.slice(first_sep+1)
-        len = cached_user.history.length
+        cached_user.history = cached_user.history.slice(first_sep+1)
+        hist_len = cached_user.history.length
     }
 
     return cached_user

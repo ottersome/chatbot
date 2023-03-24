@@ -1,13 +1,8 @@
 import argparse
-from sklearn.model_selection import train_test_split
 import os
 import numpy as np
-import pickle
-import pandas as pd
 import random
 import torch
-from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -26,16 +21,11 @@ def parse_args():
                         dest='device',
                         default='cuda',
                         type=str)
-    parser.add_argument("--n_gpu",
-                        dest='n_gpu',
-                        required=True,
-                        help='Number of GPUs used for training',
-                        type=int)
-    parser.add_argument("--ds_path",
-                        dest='dataset_path',
-                        required=True,
-                        help='Path to your dataset for fine-tuning',
-                        type=str)
+    # parser.add_argument("--ds_path",
+                        # dest='dataset_path',
+                        # required=True,
+                        # help='Path to your dataset for fine-tuning',
+                        # type=str)
     parser.add_argument("--logging_steps",
                         dest='logging_steps',
                         default=1000,
@@ -46,11 +36,15 @@ def parse_args():
                         type=str)
     parser.add_argument("--checkpoint_interval",
                         dest='checkpoint_interval',
-                        default=5,
+                        default=1,
+                        type=int)
+    parser.add_argument("--checkpoint_path",
+                        dest='checkpoint_path',
+                        default="",
                         type=str)
     parser.add_argument("--model_type",
                         dest='model_type',
-                        default='gpt2',
+                        default='gptj',
                         type=str)
     parser.add_argument("--config_name",
                         dest='config_name',
@@ -121,49 +115,25 @@ def parse_args():
                         type=int)
     return parser.parse_args()
 
-# Construct Conversation from a row of contexts :p
+# For our particular dataset we want it to have all the context it has so far
 
 
 
-class BinaryFeedbackDataset(Dataset):
+         
+def get_mask(batch, pad_token, eos_token):
+    mask = torch.zeros_like(batch)
+    for i,row in enumerate(batch):
+        eos_tokens = np.where(row == eos_token)[0]
+        if len(eos_tokens) == 0 :  
+            print("Your eos token is :", eos_token)
+            print("Eos Tokens are : ", eos_tokens)
+            print("Your problem : \n",batch[row])
+        assert len(eos_tokens) != 0, print('There is no eos token in the utterance')
+        last_eos = eos_tokens[-1]
+        mask[i,0:last_eos+1] = 1
+    return mask
 
-    def __init__(self, tokenizer: PreTrainedTokenizer, args, df_train, logger, block_size=512, name_extra=""):
-        # model_max_length represents the maximum numberof tokens a model can handle(including speicla tokens)
-        # TODO understand this one right here
-        # block_size = block_size  - (tokenizer.max_len - tokenizer.max_len_single_sentence)
 
-        #TODO> FINISH FROM HERE ON
-        directory = args.cache_dir
-        cached_features_file = os.path.join(directory, args.model_type+"cached_lm_"+name_extra+str(block_size))
-        self.examples = []
-
-        if os.path.exists(cached_features_file) and not args.overwrite_cached:
-            logger.info("Loading cached features from cache file %s", cached_features_file)
-            with open(cached_features_file,"rb") as filo:
-                self.examples = pickle.load(filo)
-        else:
-            logger.info("Creating cache of features from dataset at %s", cached_features_file)
-            # Actually Do wome work on the df_train
-            logger.info("Formatting Data Properly...")
-            print('Formatting Data Properly')
-            # Training Data in one file
-            for _,row in df_train.iterrows():
-                dialog = construct_convo(row,tokenizer)
-                if (len(dialog) > 0):
-                    self.examples.append(dialog)# Single Row of df_train formatted for use
-
-            logger.info("Saving Encoded Data into file at %s", cached_features_file)
-            with open(cached_features_file,"wb") as filo:
-                pickle.dump(self.examples, filo, protocol=pickle.HIGHEST_PROTOCOL)
-
-    def __getitem__(self,idx):
-        return torch.tensor(self.examples[idx], dtype=torch.long)
-
-    def __len__(self):
-        return self.len()
-
-    def len(self):
-        return len(self.examples)
 
 def set_seed(seed):
     random.seed(seed)
