@@ -38,7 +38,8 @@ ENV TORCH_CUDA_ARCH_LIST=Volta;Turing
 RUN conda run python -m pip install --no-cache-dir torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html && \
     git clone https://github.com/NVIDIA/apex /tmp/apex && \
     conda install transformers pandas tensorboardX tqdm ipywidgets scikit-learn && \
-    pip install bitsandbytes accelerate
+    pip install bitsandbytes accelerate pyarrow
+
 WORKDIR /tmp/apex
 RUN git checkout -b 22.04  remotes/origin/22.04-dev && \
     python -m pip install -v --disable-pip-version-check --no-cache-dir ./
@@ -47,7 +48,9 @@ RUN useradd --create-home --shell /bin/zsh --groups sudo -p $P $U  && \
     echo "${U}:${P}" | chpasswd && \
     ssh-keygen -A && \
     mkdir -p $HOME/.ssh && \
-    mkdir -p /run/sshd
+    mkdir -p /run/sshd &&\
+    echo "$ssh_pub_key" > /root/.ssh/id_rsa.pub &&\
+    echo "$ssh_priv_key" > /root/.ssh/id_rsa.pub
 
 ENV PATH /opt/conda/bin:$PATH
 ENV HOME /home/$USER
