@@ -69,7 +69,33 @@ def save_checkpoint(model, optimizer, args,tinfo):
     torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
     torch.save(tinfo, os.path.join(output_dir, "tinfo.bin"))
     
+
 def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
+
+    def collate(examples: List[torch.Tensor]):
+        logger.info("Size of examples here is :"+str(len(examples)))
+        gcombos,bcombos = [],[]
+        gtids,btids= [],[]
+        for example in examples:
+            gcombos.append(example['gcombo'])
+            bcombos.append(example['bcombo'])
+            gtids.append(example['good_type_ids'])
+            btids.append(example['bad_type_ids'])
+
+
+        if tokenizer._pad_token is None:
+            # Will likey by this with GPTJ, so by default it will pad with 0
+            g_padded = pad_sequence(gcombos, batch_first=True)
+            b_padded = pad_sequence(bcombos, batch_first=True)
+            gtids_padded = pad_sequence(gtids, batch_first=True)
+            btids_padded = pad_sequence(btids, batch_first=True)
+            return g_padded,b_padded, gtids_padded, btids_padded
+
+        g_padded = pad_sequence(gcombos, batch_first=True, padding_value=tokenizer.pad_token_id)
+        b_padded = pad_sequence(bcombos, batch_first=True, padding_value=tokenizer.pad_token_id)
+        gtids_padded = pad_sequence(gtids, batch_first=True, padding_value=tokenizer.pad_token_id)
+        btids_padded = pad_sequence(btids, batch_first=True, padding_value=tokenizer.pad_token_id)
+        return g_padded,b_padded, gtids_padded, btids_padded
 
     # Chose Adam as optimizer
     #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
@@ -93,22 +119,6 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     batch_size = args.batch_size_per_gpu# Lets leave it at that for now 
     
     # Here each example is made of a good and bad combination
-    def collate(examples: List[torch.Tensor]):
-        logger.info("Size of examples here is :"+str(len(examples)))
-        gcombos,bcombos = [],[]
-        for example in examples:
-            gcombos.append(example[0])
-            bcombos.append(example[0])
-
-        if tokenizer._pad_token is None:
-            # Will likey by this with GPTJ, so by default it will pad with 0
-            g_padded = pad_sequence(gcombos, batch_first=True)
-            b_padded = pad_sequence(bcombos, batch_first=True)
-            return g_padded,g_padded
-
-            g_padded = pad_sequence(gcombos, batch_first=True, padding_value=tokenizer.pad_token_id)
-            b_padded = pad_sequence(bcombos, batch_first=True, padding_value=tokenizer.pad_token_id)
-        return  g_padded, b_padded
 
     # Sample from training dataset
     print(f"Size of training data set is {len(dataset)}")
@@ -165,20 +175,22 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
         within_epoch_iterator = tqdm(train_dataloader, initial=tinfo['saved_step'],desc="Iteration", leave=False)
         tinfo['epoch'] += 1
         for batch in within_epoch_iterator:
-            gcombo, bcombo =  batch
+            gcombo, bcombo, gtypeids, btypeids =  batch
 
             gmasks, bmasks = get_mask(gcombo,0,tokenizer.eos_token_id), get_mask(bcombo,0,tokenizer.eos_token_id)
 
+            gcombo = gcombo.to(args.device)
+            bcombo = bcombo.to(args.device)
             gmasks = gmasks.to(args.device)
             bmasks = bmasks.to(args.device)
+            gtypeids = gtypeids.to(args.device)
+            btypeids = btypeids.to(args.device)
 
             # Skip Long Examples
             # if inputs.shape[1] > 4096:
                 # print("Skipping this example")
                 # continue
 
-            gcombo = gcombo.to(args.device)
-            bcombo = bcombo.to(args.device)
             model.train()
 
             #outputs  = model(inputs,labels=labels) # THis is for useing the internal loss function
@@ -187,13 +199,12 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             # extra_zeros = torch.tensor([[0]]*inputs.shape[0]).to(args.device)
             # labels = torch.cat([inputs[:,1:], extra_zeros],axis=1)
             # Labels can be set = inputs segun la documentacion
-            gscore  = model.forward(input_ids = gcombo,attention_mask= gmasks, use_cache=False)
-            bscore  = model.forward(input_ids = bcombo,attention_mask= bmasks, use_cache=False)
+            gscore  = model.forward(input_ids = gcombo,attention_mask= gmasks, token_type_ids=gtypeids, use_cache=False)
+            bscore  = model.forward(input_ids = bcombo,attention_mask= bmasks, token_type_ids=btypeids, use_cache=False)
 
             # Our own Loss
-            loss = torch.log(torch.sigmoid(gscore - bscore))
-
-            loss = out[0].mean()
+            loss = -torch.log(torch.sigmoid(gscore.logits[:,-1,:] - bscore.logits[:,-1,:]))
+            loss = loss.mean()
 
             #loss = outputs[0]
             # loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
@@ -211,7 +222,7 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             logger.info(f"Loss for epoch {tinfo['epoch']}, global steo {tinfo['global_step']} is {tr_loss/tinfo['global_step']}")
             within_epoch_iterator.set_description('Current Batch Loss: {}'.format(tr_loss/tinfo['global_step']))
 
-            del gcombo,bcombo, masks, out, loss, batch
+            del gcombo,bcombo, gmasks, bmasks, gscore, loss, batch
             torch.cuda.empty_cache()
             gc.collect()
             tinfo['saved_step'] +=1
@@ -259,16 +270,36 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
 
 
 def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, eval_dataset, prefix ="") -> Dict:
+
     # Create output dir
     #  eval_output_dir = args.output_dir
     #  os.makedirs(eval_output_dir, exist_ok=True)
+    def collate(examples: List[torch.Tensor]):
+        logger.info("Size of examples here is :"+str(len(examples)))
+        gcombos,bcombos = [],[]
+        gtids,btids= [],[]
+        for example in examples:
+            gcombos.append(example['gcombo'])
+            bcombos.append(example['bcombo'])
+            gtids.append(example['good_type_ids'])
+            btids.append(example['bad_type_ids'])
+
+
+        if tokenizer._pad_token is None:
+            # Will likey by this with GPTJ, so by default it will pad with 0
+            g_padded = pad_sequence(gcombos, batch_first=True)
+            b_padded = pad_sequence(bcombos, batch_first=True)
+            gtids_padded = pad_sequence(gtids, batch_first=True)
+            btids_padded = pad_sequence(btids, batch_first=True)
+            return g_padded,b_padded, gtids_padded, btids_padded
+
+        g_padded = pad_sequence(gcombos, batch_first=True, padding_value=tokenizer.pad_token_id)
+        b_padded = pad_sequence(bcombos, batch_first=True, padding_value=tokenizer.pad_token_id)
+        gtids_padded = pad_sequence(gtids, batch_first=True, padding_value=tokenizer.pad_token_id)
+        btids_padded = pad_sequence(btids, batch_first=True, padding_value=tokenizer.pad_token_id)
+        return g_padded,b_padded, gtids_padded, btids_padded
     batch_size = args.batch_size_per_gpu#* max(1, args.n_gpu)
 
-    def collate(examples: List[torch.Tensor]):
-        print("Example batch looks like this: ", examples)
-        if tokenizer._pad_token is None:
-            return pad_sequence(examples, batch_first=True)
-        return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
 
     eval_sampler = SequentialSampler(eval_dataset)
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=batch_size, collate_fn=collate, drop_last=True)

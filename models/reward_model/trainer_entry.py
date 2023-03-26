@@ -56,14 +56,19 @@ if __name__=='__main__':
     # Meep 
     print('Setting Up Tokenizers and (Possibly) PreTrained Models')
     #config = AutoConfig.from_pretrained(args.config_name, cache_dir=args.cache_dir)
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir, additional_special_tokens=['<|SEP|>'])
     model = GPTJForCausalLMWithValueHead.from_pretrained("hivemind/gpt-j-6B-8bit", low_cpu_mem_usage=True)
     add_adapters(model)
     model.gradient_checkpointing_enable()
     
+    #  tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir, additional_special_tokens=['<|SEP|>'])
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
+    #  model.resize_token_embeddings(len(tokenizer))
+
     # Load Checkpoint
     if args.checkpoint_path != "":
         model.load_state_dict(torch.load(args.checkpoint_path+'/model_state_dict.pt'))
+
+
 
     args.device = torch.device(args.device)
     model.to(args.device)

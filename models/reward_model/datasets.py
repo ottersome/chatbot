@@ -77,10 +77,22 @@ class BinaryFeedbackDataset(Dataset):
 
     def __getitem__(self,idx):
         # TODO not hard code this so much 
-        good = self.samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.samples[idx][1]
-        bad = self.samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.samples[idx][1]
+        #  good = self.samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.samples[idx][1]
+        #  bad = self.samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.samples[idx][1]
+        good = self.samples[idx][0] + self.samples[idx][1]
+        bad = self.samples[idx][0] + self.samples[idx][2]
+        ctx_len = len(self.samples[idx][0])
+        good_len = len(self.samples[idx][1])
+        bad_len = len(self.samples[idx][2])
 
-        return torch.tensor(good, dtype=torch.long),torch.tensor(bad, dtype=torch.long)
+        out = {
+                "gcombo" : torch.tensor(good,dtype=torch.long),
+                "bcombo": torch.tensor(bad,dtype=torch.long),
+                "good_type_ids" : torch.tensor([0]*ctx_len + [1]*good_len),
+                "bad_type_ids" : torch.tensor([0]*ctx_len + [1]*bad_len)
+                }
+
+        return out
 
     def __len__(self):
         return self.len()

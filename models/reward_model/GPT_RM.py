@@ -7,6 +7,7 @@ from torch import nn
 from torch.cuda.amp import custom_fwd, custom_bwd
 
 from bitsandbytes.functional import quantize_blockwise, dequantize_blockwise
+from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from tqdm.auto import tqdm
 
@@ -70,23 +71,26 @@ class DequantizeAndLinear(torch.autograd.Function):
 class FrozenBNBEmbedding(nn.Module):
     def __init__(self, weight, absmax, code):
         super().__init__()
+        print('We are creating our Embedding from init')
         self.num_embeddings, self.embedding_dim = weight.shape
         self.register_buffer("weight", weight.requires_grad_(False))
         self.register_buffer("absmax", absmax.requires_grad_(False))
         self.register_buffer("code", code.requires_grad_(False))
         self.adapter = None
  
-    def forward(self, input, **kwargs):
+    def forward(self, inputs, **kwargs):
         with torch.no_grad():
             # note: both quantuized weights and input indices are *not* differentiable
             weight_deq = dequantize_blockwise(self.weight, absmax=self.absmax, code=self.code)
-            output = F.embedding(input, weight_deq, **kwargs)
+            output = F.embedding(inputs, weight_deq, **kwargs)
         if self.adapter:
-            output += self.adapter(input)
+            output += self.adapter(inputs)
         return output 
  
     @classmethod
     def from_embedding(cls, embedding: nn.Embedding) -> "FrozenBNBEmbedding":
+        print('We are not using this function because we are downloading a model\
+              thats already quantized')
         weights_int8, state = quantize_blockise_lowmemory(embedding.weight)
         return cls(weights_int8, *state)
  
@@ -120,7 +124,7 @@ def convert_to_int8(model):
                 # print(name, child)
                 setattr( 
                     module,
-                    name,
+                    name,#Name refers to the specific module, say val_head
                     FrozenBNBLinear(
                         weight=torch.zeros(child.out_features, child.in_features, dtype=torch.uint8),
                         absmax=torch.zeros((child.weight.numel() - 1) // 4096 + 1),
@@ -214,7 +218,7 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
         # make sure sampling in fp16 works correctly and
         # compute loss in fp32 to match with mesh-tf version
         # https://github.com/EleutherAI/gpt-neo/blob/89ce74164da2fb16179106f54e2269b5da8db333/models/gpt2/gpt2.py#L179
-        lm_logits = self.lm_head(hidden_states).to(torch.float32)
+        lm_logits = self.val_head(hidden_states).to(torch.float32)
         # This gives memy scalar 
 
         loss = None
@@ -251,11 +255,12 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
 def add_adapters(model, adapter_dim=16):
     assert adapter_dim > 0
 
-    # Add Adapters 
+    # After we have converted to 8 bits we then fill in extra layers for the Frozen Layers
     for module in model.modules():
-        if isinstance(module, FrozenBNBLinear):
+        if isinstance(module, FrozenBNBLinear) and module.name != "val_head":
             module.adapter = nn.Sequential(
-                nn.Linear(module.in_features, adapter_dim, bias=False),
+                # A and B matrices
+                nn.Linear(module.in_features, adapter_dim, bias=False), 
                 nn.Linear(adapter_dim, module.out_features, bias=False),
             )
             nn.init.zeros_(module.adapter[1].weight)

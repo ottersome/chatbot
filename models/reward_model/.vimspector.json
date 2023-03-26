@@ -89,44 +89,6 @@
     }
   },
   "configurations": {
-    "remote-launch": {
-      "adapter": "python-remote",
-
-      "remote-request": "launch",
-      "remote-cmdLine": [
-        "/home/racc/NLP/chatbot/models/reward_model/${fileBasename}", "*${args}"
-      ],
-
-      "configuration": {
-        "request": "attach",
-        "pathMappings": [
-          {
-            "localRoot": "${workspaceRoot}",
-            "remoteRoot": "/home/racc/NLP/chatbot/models/reward_model"
-          }
-        ]
-      }
-    },
-    "remote-attach": {
-      "variables": {
-        // Just an example of how to specify a variable manually rather than
-        // vimspector asking for input from the user
-        "ServiceName": "${fileBasenameNoExtension}"
-      },
-
-      "adapter": "python-remote",
-      "remote-request": "attach",
-
-      "configuration": {
-        "request": "attach",
-        "pathMappings": [
-          {
-            "localRoot": "/Users/rac716/Projects/Huginns/Flow/models/reward_model",
-            "remoteRoot": "/home/racc/NLP/chatbot/models/reward_model"
-          }
-        ]
-      }
-    },
     "Runny: Launch": {
       "adapter": "multi-session",
       "filetypes": [ "python" ],
@@ -138,8 +100,10 @@
         "python": "/Users/rac716/miniforge3/envs/rs39/bin/python3.9",
         "pathMappings": [
           {
-            "localRoot": "/Users/rac716/Projects/Huginns/Flow/models/reward_model",
-            "remoteRoot": "/home/racc/NLP/chatbot/models/reward_model"
+            //"localRoot": "/Users/rac716/Projects/Huginns/Flow/models/reward_model",
+            "localRoot": "/home/ottersome/Projects/Huginns/chatbot/models/reward_model",
+            //"remoteRoot": "/home/racc/NLP/chatbot/models/reward_model"
+            "remoteRoot": "/root/chatbot/models/reward_model"
           }
         ]
       }
