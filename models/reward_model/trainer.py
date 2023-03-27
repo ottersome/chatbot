@@ -203,15 +203,15 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             bscore  = model.forward(input_ids = bcombo,attention_mask= bmasks, token_type_ids=btypeids, use_cache=False)
 
             # Our own Loss
-            loss = -torch.log(torch.sigmoid(gscore.logits[:,-1,:] - bscore.logits[:,-1,:]))
+            loss = -torch.log(torch.sigmoid(gscore.logits - bscore.logits))
             loss = loss.mean()
 
             #loss = outputs[0]
             # loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
             tinfo['epoch_wise_loss'].append(loss.mean().item())
 
-            loss.backward()
             tr_loss += loss.item()
+            loss.backward()
 
             # Here we might use accumulation steps
             optimizer.step()

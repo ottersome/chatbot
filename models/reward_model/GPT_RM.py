@@ -1,7 +1,6 @@
 import transformers
 
 import torch
-from torch import *
 import torch.nn.functional as F
 from torch import nn
 from torch.cuda.amp import custom_fwd, custom_bwd
@@ -210,7 +209,24 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
         # information 
         hidden_states = transformer_outputs[0]
 
-        # Set device for model parallelism
+        # Get Each Index of Last EOS
+        # TODO soft code the EOS Token
+        if True:
+            hits = (input_ids == 50256).nonzero(as_tuple=True)
+            idxs = []
+            offset = 0
+            tensors = torch.zeros((hidden_states.shape[0],1,hidden_states.shape[2]))
+            for i in range(input_ids.shape[0]):
+                count_amnt = (hits[0]==i).sum()# Shoudl Give us an Index
+                idxs.append(hits[1][offset+count_amnt-1])
+                #idxs.append(offset+count_amnt-1)
+                offset += count_amnt
+                tensors[i,0,:] = hidden_states[i,idxs[-1],:]
+            # Set device for model parallelism
+            last_hstates= torch.tensor(tensors).to(torch.float32).to(self.val_head.weight.device)
+        else:
+            last_hstates = hidden_states[:,-1,:]
+
         if self.model_parallel:
             torch.cuda.set_device(self.transformer.first_device)
             hidden_states = hidden_states.to(self.val_head.weight.device)
@@ -218,7 +234,7 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
         # make sure sampling in fp16 works correctly and
         # compute loss in fp32 to match with mesh-tf version
         # https://github.com/EleutherAI/gpt-neo/blob/89ce74164da2fb16179106f54e2269b5da8db333/models/gpt2/gpt2.py#L179
-        lm_logits = self.val_head(hidden_states).to(torch.float32)
+        lm_logits = self.val_head(last_hstates).to(torch.float32)
         # This gives memy scalar 
 
         loss = None
@@ -257,7 +273,7 @@ def add_adapters(model, adapter_dim=16):
 
     # After we have converted to 8 bits we then fill in extra layers for the Frozen Layers
     for module in model.modules():
-        if isinstance(module, FrozenBNBLinear) and module.name != "val_head":
+        if isinstance(module, FrozenBNBLinear):
             module.adapter = nn.Sequential(
                 # A and B matrices
                 nn.Linear(module.in_features, adapter_dim, bias=False), 
