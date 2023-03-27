@@ -165,7 +165,10 @@ class GPTJModel(transformers.models.gptj.modeling_gptj.GPTJModel):
 class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
     def __init__(self, config):
         super().__init__(config)
-        self.val_head = nn.Linear(config.n_embd, 1,bias=False)
+        self.val_head = nn.Linear(config.n_embd, 1)
+        self.val_head.weight.data.normal_(mean=0.0,std=0.2)
+        self.val_head.bias.data.zero_()
+        self.dropout = nn.Dropout(0.1)
         convert_to_int8(self)
 
     def forward(
@@ -211,7 +214,7 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
 
         # Get Each Index of Last EOS
         # TODO soft code the EOS Token
-        if True:
+        if False:
             hits = (input_ids == 50256).nonzero(as_tuple=True)
             idxs = []
             offset = 0
@@ -227,6 +230,10 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
         else:
             last_hstates = hidden_states[:,-1,:]
 
+        # Do some drop out
+        dropped_hstates = self.dropout(last_hstates)
+
+
         if self.model_parallel:
             torch.cuda.set_device(self.transformer.first_device)
             hidden_states = hidden_states.to(self.val_head.weight.device)
@@ -234,7 +241,7 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
         # make sure sampling in fp16 works correctly and
         # compute loss in fp32 to match with mesh-tf version
         # https://github.com/EleutherAI/gpt-neo/blob/89ce74164da2fb16179106f54e2269b5da8db333/models/gpt2/gpt2.py#L179
-        lm_logits = self.val_head(last_hstates).to(torch.float32)
+        lm_logits = torch.flatten(self.val_head(dropped_hstates).to(torch.float32))
         # This gives memy scalar 
 
         loss = None
