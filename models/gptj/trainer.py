@@ -189,6 +189,10 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
             optimizer.zero_grad()
             tinfo['global_step']+=1
 
+            print("Loss is just straight up :", loss)
+            print("Embedding Weights:", model.transformer.h[26].attn.q_proj.adapter[0].weight)
+
+
             logger.info(f"Loss for epoch {tinfo['epoch']}, global steo {tinfo['global_step']} is {tr_loss/tinfo['global_step']}")
             within_epoch_iterator.set_description('Current Batch Loss: {}'.format(tr_loss/tinfo['global_step']))
 

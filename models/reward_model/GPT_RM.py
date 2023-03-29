@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.cuda.amp import custom_fwd, custom_bwd
+from typing import Mapping, Any
 
 from bitsandbytes.functional import quantize_blockwise, dequantize_blockwise
 from transformers.modeling_outputs import CausalLMOutputWithPast
@@ -30,7 +31,9 @@ class FrozenBNBLinear(nn.Module):
         self.bias = bias
  
     def forward(self, input):
+        # Apply the Old Weigths
         output = DequantizeAndLinear.apply(input, self.weight, self.absmax, self.code, self.bias)
+        # Sum the product with new weights:
         if self.adapter:
             output += self.adapter(input)
         return output
@@ -67,9 +70,10 @@ class DequantizeAndLinear(torch.autograd.Function):
  
  
 # Remeber, only a single layer of these in the entire stack. 
-class FrozenBNBEmbedding(nn.Module):
-    def __init__(self, weight, absmax, code):
-        super().__init__()
+class FrozenBNBEmbedding(torch.nn.modules.sparse.Embedding):
+    def __init__(self,num_embeddings, embedding_dim, weight, absmax, code):
+        super().__init__(num_embeddings, embedding_dim)
+        delattr(self,'weight')
         print('We are creating our Embedding from init')
         self.num_embeddings, self.embedding_dim = weight.shape
         self.register_buffer("weight", weight.requires_grad_(False))
@@ -120,8 +124,8 @@ def convert_to_int8(model):
     for module in list(model.modules()):
         for name, child in module.named_children():
             if isinstance(child, nn.Linear) and name != 'val_head':# Lm_head is replaced here so its not needed to be that way
-                # print(name, child)
-                setattr( 
+                # Weights will be loaded later
+                setattr(
                     module,
                     name,#Name refers to the specific module, say val_head
                     FrozenBNBLinear(
@@ -135,12 +139,13 @@ def convert_to_int8(model):
                 setattr(
                     module,
                     name,
-                    FrozenBNBEmbedding(
-                        weight=torch.zeros(child.num_embeddings, child.embedding_dim, dtype=torch.uint8),
-                        absmax=torch.zeros((child.weight.numel() - 1) // 4096 + 1),
-                        code=torch.zeros(256),
+                        FrozenBNBEmbedding(
+                            child.num_embeddings, child.embedding_dim,
+                            weight=torch.zeros(child.num_embeddings, child.embedding_dim, dtype=torch.uint8),
+                            absmax=torch.zeros((child.weight.numel() - 1) // 4096 + 1),
+                            code=torch.zeros(256),
+                        )
                     )
-                )
 
 # I think the model we use for pretraining has already ran this 
 # on the original GPT-J 6B
@@ -165,6 +170,7 @@ class GPTJModel(transformers.models.gptj.modeling_gptj.GPTJModel):
 class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
     def __init__(self, config):
         super().__init__(config)
+        self.embedding_dim = config.n_embd
         self.val_head = nn.Linear(config.n_embd, 1)
         self.val_head.weight.data.normal_(mean=0.0,std=0.2)
         self.val_head.bias.data.zero_()
@@ -214,7 +220,7 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
 
         # Get Each Index of Last EOS
         # TODO soft code the EOS Token
-        if False:
+        if True:
             hits = (input_ids == 50256).nonzero(as_tuple=True)
             idxs = []
             offset = 0
@@ -225,6 +231,9 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
                 #idxs.append(offset+count_amnt-1)
                 offset += count_amnt
                 tensors[i,0,:] = hidden_states[i,idxs[-1],:]
+                #  print("Shape of input_ids:",input_ids.shape[1]," and of hidden:",hidden_states.shape[1],
+                #        "our idx is:",idxs[-1])
+                #  print("We have selected token corresponding to: ",input_ids[i,idxs[-1]])
             # Set device for model parallelism
             last_hstates= torch.tensor(tensors).to(torch.float32).to(self.val_head.weight.device)
         else:
@@ -241,7 +250,8 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
         # make sure sampling in fp16 works correctly and
         # compute loss in fp32 to match with mesh-tf version
         # https://github.com/EleutherAI/gpt-neo/blob/89ce74164da2fb16179106f54e2269b5da8db333/models/gpt2/gpt2.py#L179
-        lm_logits = torch.flatten(self.val_head(dropped_hstates).to(torch.float32))
+        #lm_logits = torch.flatten(self.val_head(dropped_hstates).to(torch.float32))
+        lm_logits = self.val_head(dropped_hstates)
         # This gives memy scalar 
 
         loss = None
@@ -258,6 +268,15 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
             hidden_states=transformer_outputs.hidden_states,
             attentions=transformer_outputs.attentions,
         )
+    def load_state_dict(self, state_dict: Mapping[str, Any],
+                        strict: bool = True):
+        # Quickly remove head 
+        delattr(self.val_head)
+        super().load_state_dict(state_dict, strict)
+        setattr(self, 'val_head', nn.Linear(self.embedding_dim, 1))
+        self.val_head = nn.Linear(config.n_embd, 1)
+        self.val_head.weight.data.normal_(mean=0.0,std=0.2)
+        self.val_head.bias.data.zero_()
 
 # class GPTJForCausalLM(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
 

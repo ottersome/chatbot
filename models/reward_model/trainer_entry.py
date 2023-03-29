@@ -31,9 +31,6 @@ def cross_process_setup(rank, world_size):
 
 
 
-SPECIAL_TOKENS_DICT = {
-        'context_sep':'<|SEP|>'
-        }
 
 
 if __name__=='__main__':
@@ -60,15 +57,14 @@ if __name__=='__main__':
     add_adapters(model)
     model.gradient_checkpointing_enable()
     
-    #  tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir, additional_special_tokens=['<|SEP|>'])
+    #  tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir, additional_special_tokens=[SPECIAL_TOKENS_DICT['guesser']])
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
     #  model.resize_token_embeddings(len(tokenizer))
+    #  print("Special token : ", tokenizer.encode(SPECIAL_TOKENS_DICT['guesser']))
 
     # Load Checkpoint
     if args.checkpoint_path != "":
         model.load_state_dict(torch.load(args.checkpoint_path+'/model_state_dict.pt'))
-
-
 
     args.device = torch.device(args.device)
     model.to(args.device)

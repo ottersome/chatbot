@@ -83,7 +83,7 @@ def parse_args():
                         type=bool)
     parser.add_argument("--seed",
                         dest='seed',
-                        default=420,
+                        default=120,
                         type=int)
     parser.add_argument("--overwrite_cached",
                         dest='overwrite_cached',
