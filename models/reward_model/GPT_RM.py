@@ -239,6 +239,9 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
         else:
             last_hstates = hidden_states[:,-1,:]
 
+
+
+        #last_hstates = torch.mean(hidden_states,1)
         # Do some drop out
         dropped_hstates = self.dropout(last_hstates)
 
@@ -271,10 +274,10 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
     def load_state_dict(self, state_dict: Mapping[str, Any],
                         strict: bool = True):
         # Quickly remove head 
-        delattr(self.val_head)
+        delattr(self,'val_head')
         super().load_state_dict(state_dict, strict)
         setattr(self, 'val_head', nn.Linear(self.embedding_dim, 1))
-        self.val_head = nn.Linear(config.n_embd, 1)
+        self.val_head = nn.Linear(self.embedding_dim, 1)
         self.val_head.weight.data.normal_(mean=0.0,std=0.2)
         self.val_head.bias.data.zero_()
 

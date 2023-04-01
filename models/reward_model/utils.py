@@ -71,7 +71,7 @@ def parse_args():
                         type=str)
     parser.add_argument("--learning_rate",
                         dest='learning_rate',
-                        default=1e-2,
+                        default=1e-4,
                         type=float)
     parser.add_argument("--adam_epsilon",
                         dest='adam_epsilon',

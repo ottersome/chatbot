@@ -97,7 +97,6 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
         btids_padded = pad_sequence(btids, batch_first=True, padding_value=tokenizer.pad_token_id)
         return g_padded,b_padded, gtids_padded, btids_padded
     
-<<<<<<< HEAD
     # no_decay = ["bias", "LayerNorm.weight"]
     # optimizer_grouped_parameters = [
            # {
@@ -123,15 +122,16 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
 
     # Choose Adam as optimizer
     #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    #  optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
+    #  optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
+    optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
     tinfo = {"loss" : 0,"epoch": 1,"global_step" : 0 , "saved_step" : 0,"epoch_wise_loss" : [], "epoch_wise_valloss" : []}
     ########################################
     # Load Checkpoint
     ########################################
-    if args.checkpoint_path != "":
+    #if args.checkpoint_path != "":
+    if False: 
         print("Starting with checkpoint: "+args.checkpoint_path)
-        optimizer.load_state_dict(torch.load(args.checkpoint_path+'/optimizer.pt'))
+        optimizer.load_state_dict(torch.load(args.checkpoint_path+'/optimizer.pt'),strict=False)
         tinfo = torch.load(args.checkpoint_path+'/tinfo.bin')
         tinfo['epoch'] += 1 # Add a 1. Because it remembers last epoch not next one
 
@@ -159,9 +159,9 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
 
 
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_training_steps
-    )
+    #  scheduler = get_linear_schedule_with_warmup(
+    #      optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_training_steps
+    #  )
 
     logger.info("***** Started training *****")
     logger.info("  Num examples = %d", len(dataset))
@@ -226,12 +226,19 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             #  loss = -torch.log(torch.sigmoid(gscore.logits - bscore.logits))
             #  loss = loss.mean()
             loss = -logsigmoid(gscore.logits - bscore.logits).mean()
+            #  margin = 1.0  # You can set the margin to a suitable value
+            #  loss = torch.clamp(margin - (gscore.logits - bscore.logits), min=0).mean()
+
 
             # Calculate Gradients
             loss.backward()
 
-            print("Loss is just straight up :", loss)
-            print("Embedding Weights:", model.transformer.h[26].attn.q_proj.adapter[0].weight.abs().sum())
+            print("Scores are : g:{} and b:{}".format(gscore.logits[0].item(),bscore.logits[0].item()))
+            print("Learning Rates is : ", args.learning_rate)
+            print("Transformer Block Weights Norm:", model.transformer.h[27].attn.q_proj.adapter[0].weight.abs().sum())
+            print("Maybe the MLP Weights change:",model.transformer.h[27].mlp.fc_out.adapter[0].weight.abs().sum())
+            print("Value  Weights of LayerNorm:", model.transformer.ln_f.weight.abs().sum())
+            print("Value  Weights Norm:", model.val_head.weight.abs().sum())
             #loss = outputs[0]
             # loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
             tinfo['epoch_wise_loss'].append(loss.item())
@@ -239,8 +246,9 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             tr_loss += loss.item()
 
             # Here we might use accumulation steps
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            scheduler.step()
+            #  scheduler.step()
             tinfo['global_step']+=1
             
             # Log If Weights are changing
