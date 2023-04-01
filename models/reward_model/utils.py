@@ -71,7 +71,7 @@ def parse_args():
                         type=str)
     parser.add_argument("--learning_rate",
                         dest='learning_rate',
-                        default=1e-5,
+                        default=1e-2,
                         type=float)
     parser.add_argument("--adam_epsilon",
                         dest='adam_epsilon',
@@ -83,7 +83,7 @@ def parse_args():
                         type=bool)
     parser.add_argument("--seed",
                         dest='seed',
-                        default=420,
+                        default=120,
                         type=int)
     parser.add_argument("--overwrite_cached",
                         dest='overwrite_cached',

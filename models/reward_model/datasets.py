@@ -7,6 +7,9 @@ from transformers import PreTrainedTokenizer
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 
+SPECIAL_TOKENS_DICT = {
+        'guesser':'<|GUESS|>'
+        }
 
 class BinaryFeedbackDataset(Dataset):
 
@@ -37,10 +40,13 @@ class BinaryFeedbackDataset(Dataset):
             final_ds  = pd.DataFrame(final_ds)
 
             logger.info("Formatting Data Properly...")
-            # Training Data in one file
+            # Training Data in one file<Checked>
             for _,row in tqdm(final_ds.iterrows(), desc="Prepping Datasets"):
                 interaction = self.tokenize_strings(row.to_list(),tokenizer)
-                self.samples.append(interaction)
+                glen = len(interaction[0]+interaction[1])
+                blen = len(interaction[0]+interaction[2])
+                if not(glen > 2000 or blen  > 2000):
+                    self.samples.append(interaction)
 
             logger.info("Saving Encoded Data into file at %s", cached_features_file)
             with open(cached_features_file,"wb") as filo:
@@ -69,18 +75,34 @@ class BinaryFeedbackDataset(Dataset):
         # Flatten will go take a row, go through columns, go through their words, encode them and then put them all together
 
         return_list = []
-        for element in strings_list:
-            return_list.append(tokenizer_of_choice.encode(element))
+        for i,element in enumerate(strings_list):
+            #  if i == 0:
+            if True:
+                return_list.append(tokenizer_of_choice.encode(element))
+            #  else:
+            #      return_list.append(tokenizer_of_choice.encode(element)+tokenizer_of_choice.encode(SPECIAL_TOKENS_DICT['guesser']))
 
         # convo.pop(-1)# Remove the last eos
         return return_list
 
     def __getitem__(self,idx):
         # TODO not hard code this so much 
-        good = self.samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.samples[idx][1]
-        bad = self.samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.samples[idx][1]
+        #  good = self.samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.samples[idx][1]
+        #  bad = self.samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.samples[idx][1]
+        good = self.samples[idx][0] + self.samples[idx][1]
+        bad = self.samples[idx][0] + self.samples[idx][2]
+        ctx_len = len(self.samples[idx][0])
+        good_len = len(self.samples[idx][1])
+        bad_len = len(self.samples[idx][2])
 
-        return torch.tensor(good, dtype=torch.long),torch.tensor(bad, dtype=torch.long)
+        out = {
+                "gcombo" : torch.tensor(good,dtype=torch.long),
+                "bcombo": torch.tensor(bad,dtype=torch.long),
+                "good_type_ids" : torch.tensor([0]*ctx_len + [1]*good_len),
+                "bad_type_ids" : torch.tensor([0]*ctx_len + [1]*bad_len)
+                }
+
+        return out
 
     def __len__(self):
         return self.len()
