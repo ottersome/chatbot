@@ -41,9 +41,10 @@ if __name__=='__main__':
     #Loading the modles
     set_seed(args.seed)
     
+    Path('./logs/').mkdir(parents=True, exist_ok=True)
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
                         datefmt="%m/%d/%Y %H:%M:%S",
-                        filename='training.log',
+                        filename='logs/training.log',
                         level=logging.DEBUG
                         )
     
@@ -65,7 +66,7 @@ if __name__=='__main__':
 
     args.device = torch.device(args.device)
     model.to(args.device)
-    # model = nn.DataParallel(model)
+    model = nn.DataParallel(model)
   
     # Crearte Output dir
     p=Path(args.output_dir)

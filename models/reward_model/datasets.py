@@ -41,14 +41,19 @@ class BinaryFeedbackDataset(Dataset):
 
             logger.info("Formatting Data Properly...")
             # Training Data in one file<Checked>
+            samples_removed = 0
             for _,row in tqdm(final_ds.iterrows(), desc="Prepping Datasets"):
                 interaction = self.tokenize_strings(row.to_list(),tokenizer)
                 glen = len(interaction[0]+interaction[1])
                 blen = len(interaction[0]+interaction[2])
-                if not(glen > 2000 or blen  > 2000):
+                # We are runnign out of memory for promopts bigger than 1000
+                if not(glen > 1000 or blen  > 1000):
                     self.samples.append(interaction)
+                else: 
+                    samples_removed += 1
 
             logger.info("Saving Encoded Data into file at %s", cached_features_file)
+            print("Removed {} samples because they were too big".format(samples_removed))
             with open(cached_features_file,"wb") as filo:
                 pickle.dump(self.samples, filo, protocol=pickle.HIGHEST_PROTOCOL)
         #

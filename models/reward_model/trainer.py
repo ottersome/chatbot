@@ -159,9 +159,10 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
 
 
-    #  scheduler = get_linear_schedule_with_warmup(
-    #      optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_training_steps
-    #  )
+    # scheduler = get_linear_schedule_with_warmup(
+        # optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_training_steps
+    # )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_train_epochs)
 
     logger.info("***** Started training *****")
     logger.info("  Num examples = %d", len(dataset))
@@ -215,11 +216,13 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
 
             #outputs  = model(inputs,labels=labels) # THis is for useing the internal loss function
             # TODO Maks for padding the batch 
-            logger.info("Length of sttring: {}".format(gcombo.shape) )
+            logger.info("Length of gcombo: {} and bcombo {}".format(gcombo.shape, bcombo.shape) )
             # extra_zeros = torch.tensor([[0]]*inputs.shape[0]).to(args.device)
             # labels = torch.cat([inputs[:,1:], extra_zeros],axis=1)
             # Labels can be set = inputs segun la documentacion
+            # logger.debug("GCombo[0]  for thistep :\n{}".format(tokenizer.decode(gcombo[0])))
             gscore  = model(input_ids = gcombo,attention_mask= gmasks, token_type_ids=gtypeids, use_cache=False)
+            # logger.debug("BCombo[0]  for thistep :\n{}".format(tokenizer.decode(bcombo[0])))
             bscore  = model(input_ids = bcombo,attention_mask= bmasks, token_type_ids=btypeids, use_cache=False)
 
             # Our own Loss
@@ -233,12 +236,12 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             # Calculate Gradients
             loss.backward()
 
-            print("Scores are : g:{} and b:{}".format(gscore.logits[0].item(),bscore.logits[0].item()))
-            print("Learning Rates is : ", args.learning_rate)
-            print("Transformer Block Weights Norm:", model.transformer.h[27].attn.q_proj.adapter[0].weight.abs().sum())
-            print("Maybe the MLP Weights change:",model.transformer.h[27].mlp.fc_out.adapter[0].weight.abs().sum())
-            print("Value  Weights of LayerNorm:", model.transformer.ln_f.weight.abs().sum())
-            print("Value  Weights Norm:", model.val_head.weight.abs().sum())
+            #print("Scores are : g:{}\n\t and b:{}".format(gscore.logits.item(),bscore.logits.item()))
+            print("Scores are : g:{}\n\t and b:{}".format(gscore.logits.mean().item(),bscore.logits.mean().item()))
+            print("Learning Rates is : ", scheduler.get_lr())
+            print("Transformer Block Weights Norm:", model.module.transformer.h[27].attn.q_proj.adapter[0].weight.abs().sum())
+            print("Transformer Block Weights Grad:", model.module.transformer.h[27].attn.q_proj.adapter[0].weight.grad.abs().sum())
+            print("Value  Weights Norm:", model.module.val_head.weight.abs().sum())
             #loss = outputs[0]
             # loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
             tinfo['epoch_wise_loss'].append(loss.item())
@@ -246,9 +249,9 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             tr_loss += loss.item()
 
             # Here we might use accumulation steps
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            #  scheduler.step()
+            scheduler.step()
             tinfo['global_step']+=1
             
             # Log If Weights are changing
@@ -258,7 +261,7 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             logger.info(f"Loss for epoch {tinfo['epoch']}, global steo {tinfo['global_step']} is {tr_loss/tinfo['global_step']}")
             within_epoch_iterator.set_description('CSLoss: {} CBLoss: {}'.format(loss.item(),tr_loss/tinfo['global_step']))
 
-            del gcombo,bcombo, gmasks, bmasks, gscore, loss, batch
+            del gcombo,bcombo, gmasks, gtypeids,btypeids,bmasks, gscore, loss, batch
             torch.cuda.empty_cache()
             gc.collect()
             tinfo['saved_step'] +=1

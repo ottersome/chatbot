@@ -111,7 +111,7 @@ def parse_args():
                         type=int)
     parser.add_argument("--num_train_epochs",
                         dest='num_train_epochs',
-                        default=20,
+                        default=2,
                         type=int)
     return parser.parse_args()
 

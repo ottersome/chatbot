@@ -220,28 +220,32 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
 
         # Get Each Index of Last EOS
         # TODO soft code the EOS Token
-        if True:
-            hits = (input_ids == 50256).nonzero(as_tuple=True)
-            idxs = []
-            offset = 0
-            tensors = torch.zeros((hidden_states.shape[0],1,hidden_states.shape[2]))
-            for i in range(input_ids.shape[0]):
-                count_amnt = (hits[0]==i).sum()# Shoudl Give us an Index
-                idxs.append(hits[1][offset+count_amnt-1])
-                #idxs.append(offset+count_amnt-1)
-                offset += count_amnt
-                tensors[i,0,:] = hidden_states[i,idxs[-1],:]
-                #  print("Shape of input_ids:",input_ids.shape[1]," and of hidden:",hidden_states.shape[1],
-                #        "our idx is:",idxs[-1])
-                #  print("We have selected token corresponding to: ",input_ids[i,idxs[-1]])
-            # Set device for model parallelism
-            last_hstates= torch.tensor(tensors).to(torch.float32).to(self.val_head.weight.device)
-        else:
-            last_hstates = hidden_states[:,-1,:]
 
+        hits = (input_ids == 50256).nonzero(as_tuple=True)
+        idxs = []
+        offset = 0
+        embed_size = hidden_states.shape[2]
+        #tensors = torch.zeros((hidden_states.shape[0],1,embed_size))
+        tensors = []
+        for i in range(input_ids.shape[0]):
+            count_amnt = (hits[0]==i).sum()# Shoudl Give us an Index
+            idxs.append(hits[1][offset+count_amnt-1])
+            # idxs.append([[hits[1][offset+count_amnt-1]]*hidden_states.shape[2]])
+            offset += count_amnt
+            tensors.append(hidden_states[i,idxs[-1],:].view(1,-1))
+            # tensors[i,0,:] = hidden_states[i,idxs[-1],:] # NOrmal One
+            # tensors[i,0,:] = torch.mean(hidden_states[i,:idxs[-1],:]) # Get their means for better backward propagation
 
+            #  print("Shape of input_ids:",input_ids.shape[1]," and of hidden:",hidden_states.shape[1],
+            #        "our idx is:",idxs[-1])
+            #  print("We have selected token corresponding to: ",input_ids[i,idxs[-1]])
+        # Set device for model parallelism
+        #last_hstates= torch.tensor(tensors).to(torch.float32).to(self.val_head.weight.device)
+        idxs = torch.tensor(idxs).to(self.val_head.weight.device)
+        #last_hstates = hidden_states.gather(1, idxs)
+        last_hstates = torch.cat(tensors,0)
 
-        #last_hstates = torch.mean(hidden_states,1)
+        # last_hstates = torch.mean(hidden_states,1)
         # Do some drop out
         dropped_hstates = self.dropout(last_hstates)
 
