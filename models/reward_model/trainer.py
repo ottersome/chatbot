@@ -97,6 +97,7 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
         btids_padded = pad_sequence(btids, batch_first=True, padding_value=tokenizer.pad_token_id)
         return g_padded,b_padded, gtids_padded, btids_padded
     
+<<<<<<< HEAD
     # no_decay = ["bias", "LayerNorm.weight"]
     # optimizer_grouped_parameters = [
            # {
@@ -111,6 +112,19 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     #optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     # optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=2)
+    no_decay = ["bias", "LayerNorm.weight"]
+    optimizer_grouped_parameters = [
+           {
+               "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+               "weight_decay": args.weight_decay,
+           },
+           {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
+       ]
+
+    # Choose Adam as optimizer
+    #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
+    optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
+    #  optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
     tinfo = {"loss" : 0,"epoch": 1,"global_step" : 0 , "saved_step" : 0,"epoch_wise_loss" : [], "epoch_wise_valloss" : []}
     ########################################
     # Load Checkpoint

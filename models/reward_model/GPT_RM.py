@@ -220,7 +220,7 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
 
         # Get Each Index of Last EOS
         # TODO soft code the EOS Token
-        if False:
+        if True:
             hits = (input_ids == 50256).nonzero(as_tuple=True)
             idxs = []
             offset = 0

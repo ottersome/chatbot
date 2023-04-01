@@ -89,45 +89,7 @@
     }
   },
   "configurations": {
-    "remote-launch": {
-      "adapter": "python-remote",
-
-      "remote-request": "launch",
-      "remote-cmdLine": [
-        "/home/racc/NLP/chatbot/models/gptj/${fileBasename}", "*${args}"
-      ],
-
-      "configuration": {
-        "request": "attach",
-        "pathMappings": [
-          {
-            "localRoot": "${workspaceRoot}",
-            "remoteRoot": "/home/racc/NLP/chatbot/models/gptj"
-          }
-        ]
-      }
-    },
-    "remote-attach": {
-      "variables": {
-        // Just an example of how to specify a variable manually rather than
-        // vimspector asking for input from the user
-        "ServiceName": "${fileBasenameNoExtension}"
-      },
-
-      "adapter": "python-remote",
-      "remote-request": "attach",
-
-      "configuration": {
-        "request": "attach",
-        "pathMappings": [
-          {
-            "localRoot": "/Users/rac716/Projects/Huginns/Flow/models/gptj",
-            "remoteRoot": "/home/racc/NLP/chatbot/models/gptj"
-          }
-        ]
-      }
-    },
-    "Runny: Launch": {
+    "Runn: Launch": {
       "adapter": "multi-session",
       "filetypes": [ "python" ],
       "configuration": {
@@ -138,8 +100,10 @@
         "python": "/Users/rac716/miniforge3/envs/rs39/bin/python3.9",
         "pathMappings": [
           {
-            "localRoot": "/Users/rac716/Projects/Huginns/Flow/models/gptj",
-            "remoteRoot": "/home/racc/NLP/chatbot/models/gptj"
+            //"localRoot": "/Users/rac716/Projects/Huginns/Flow/models/gptj",
+            "localRoot": "/home/ottersome/Projects/Huginns/chatbot/models/gptj",
+            //"remoteRoot": "/home/racc/NLP/chatbot/models/gptj"
+            "remoteRoot": "/root/chatbot/models/gptj"
           }
         ]
       }

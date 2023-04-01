@@ -71,7 +71,7 @@ if __name__=='__main__':
 
     args.device = torch.device(args.device)
     model.to(args.device)
-    model = nn.DataParallel(model)
+    #  model = nn.DataParallel(model)
   
     # Crearte Output dir
     p=Path(args.output_dir)
