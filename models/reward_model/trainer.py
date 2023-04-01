@@ -65,7 +65,8 @@ def save_checkpoint(model, optimizer, args,tinfo):
     os.makedirs(output_dir, exist_ok=True)
     logger.info("Saving model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
 
-    torch.save(model.module.state_dict(),os.path.join(output_dir,"model_state_dict.pt"))
+    #torch.save(model.module.state_dict(),os.path.join(output_dir,"model_state_dict.pt")) # For DataParallel
+    torch.save(model,os.path.join(output_dir,"model_state_dict.pt")) # Single Gpu
     torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
     torch.save(tinfo, os.path.join(output_dir, "tinfo.bin"))
     
@@ -236,12 +237,15 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             # Calculate Gradients
             loss.backward()
 
+            desc=""
             #print("Scores are : g:{}\n\t and b:{}".format(gscore.logits.item(),bscore.logits.item()))
-            print("Scores are : g:{}\n\t and b:{}".format(gscore.logits.mean().item(),bscore.logits.mean().item()))
-            print("Learning Rates is : ", scheduler.get_lr())
-            print("Transformer Block Weights Norm:", model.module.transformer.h[27].attn.q_proj.adapter[0].weight.abs().sum())
-            print("Transformer Block Weights Grad:", model.module.transformer.h[27].attn.q_proj.adapter[0].weight.grad.abs().sum())
-            print("Value  Weights Norm:", model.module.val_head.weight.abs().sum())
+            desc+="Scores are : g:{}\n\t and b:{}\n".format(gscore.logits.mean().item(),bscore.logits.mean().item())
+            desc+="Learning Rates is : {}\n".format(scheduler.get_lr())
+            desc+="Transformer Block Weights Norm: {}\n".format(model.transformer.h[27].attn.q_proj.adapter[0].weight.abs().sum())
+            desc+="Transformer Block Weights Grad: {}\n".format(model.transformer.h[27].attn.q_proj.adapter[0].weight.grad.abs().sum())
+            desc+="Value  Weights Norm: {}\n".format(model.val_head.weight.abs().sum())
+            print(desc)
+            #desc+="Value  Weights Norm: {}\n".format(model.module.val_head.weight.abs().sum())
             #loss = outputs[0]
             # loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
             tinfo['epoch_wise_loss'].append(loss.item())
@@ -267,7 +271,7 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             tinfo['saved_step'] +=1
             ### END OF BATCH ##
 
-            if tinfo['global_step'] % int(0.1*(dataset.len()/args.batch_size_per_gpu)) == 0:
+            if tinfo['global_step'] % int(0.20*(dataset.len()/args.batch_size_per_gpu)) == 0:
                 save_checkpoint(model, optimizer,args,tinfo)
         
         tinfo['saved_step'] =0
