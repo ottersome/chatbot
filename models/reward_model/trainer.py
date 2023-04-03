@@ -65,8 +65,8 @@ def save_checkpoint(model, optimizer, args,tinfo):
     os.makedirs(output_dir, exist_ok=True)
     logger.info("Saving model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
 
-    #torch.save(model.module.state_dict(),os.path.join(output_dir,"model_state_dict.pt")) # For DataParallel
-    torch.save(model,os.path.join(output_dir,"model_state_dict.pt")) # Single Gpu
+    torch.save(model.state_dict(),os.path.join(output_dir,"model_state_dict.pt")) # For DataParallel
+    # torch.save(model,os.path.join(output_dir,"model_state_dict.pt")) # Single Gpu
     torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
     torch.save(tinfo, os.path.join(output_dir, "tinfo.bin"))
     
@@ -130,11 +130,12 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     # Load Checkpoint
     ########################################
     #if args.checkpoint_path != "":
+        # No loading of tinfo when using supervised checkpoint
     if False: 
         print("Starting with checkpoint: "+args.checkpoint_path)
         optimizer.load_state_dict(torch.load(args.checkpoint_path+'/optimizer.pt'),strict=False)
-        tinfo = torch.load(args.checkpoint_path+'/tinfo.bin')
-        tinfo['epoch'] += 1 # Add a 1. Because it remembers last epoch not next one
+        # tinfo = torch.load(args.checkpoint_path+'/tinfo.bin')
+        # tinfo['epoch'] += 1 # Add a 1. Because it remembers last epoch not next one
 
     # For main gpu 
     tb_writer = SummaryWriter()
@@ -244,6 +245,7 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             desc+="Transformer Block Weights Norm: {}\n".format(model.transformer.h[27].attn.q_proj.adapter[0].weight.abs().sum())
             desc+="Transformer Block Weights Grad: {}\n".format(model.transformer.h[27].attn.q_proj.adapter[0].weight.grad.abs().sum())
             desc+="Value  Weights Norm: {}\n".format(model.val_head.weight.abs().sum())
+            logger.info(desc)
             print(desc)
             #desc+="Value  Weights Norm: {}\n".format(model.module.val_head.weight.abs().sum())
             #loss = outputs[0]
@@ -253,7 +255,7 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             tr_loss += loss.item()
 
             # Here we might use accumulation steps
-            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             scheduler.step()
             tinfo['global_step']+=1
