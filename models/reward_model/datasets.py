@@ -34,9 +34,11 @@ class BinaryFeedbackDataset(Dataset):
             logger.info("Creating cache of features from dataset at %s", cached_features_file)
 
             rw_df = pd.read_parquet('../../datasets/rewardmodel/binary_reward.parquet', engine='pyarrow')
+            ath_df = pd.read_parquet('../../datasets/ath/train.parquet', engine='pyarrow')
 
             final_ds = []
             final_ds += self.load_ds(rw_df, '<EOS>',tokenizer.eos_token)
+            final_ds += self.load_ds(ath_df, '<|EOS|>',tokenizer.eos_token)
             final_ds  = pd.DataFrame(final_ds)
 
             logger.info("Formatting Data Properly...")
