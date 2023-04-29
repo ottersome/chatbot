@@ -17,6 +17,10 @@ def parse_args():
                         dest='gradient_accumulation_steps',
                         default=1,
                         type=int)
+    parser.add_argument("--msteps_validation",
+                        dest='msteps_validation',
+                        default=10,
+                        type=int)
     parser.add_argument("--device",
                         dest='device',
                         default='cuda',

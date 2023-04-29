@@ -48,25 +48,25 @@ if __name__=='__main__':
                         level=logging.DEBUG
                         )
     
-    # Meep 
+    # Set up the Model
     print('Setting Up Tokenizers and (Possibly) PreTrained Models')
-    #config = AutoConfig.from_pretrained(args.config_name, cache_dir=args.cache_dir)
-    model = GPTJForCausalLMWithValueHead.from_pretrained("hivemind/gpt-j-6B-8bit", low_cpu_mem_usage=True)
-    add_adapters(model)
-    model.gradient_checkpointing_enable()
-    
-    #  tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir, additional_special_tokens=[SPECIAL_TOKENS_DICT['guesser']])
+    #model = GPTJForCausalLMWithValueHead.from_pretrained("hivemind/gpt-j-6B-8bit", low_cpu_mem_usage=True)
+    model = GPTJForRewardComparison("hivemind/gpt-j-6B-8bit")
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
-    #  model.resize_token_embeddings(len(tokenizer))
-    #  print("Special token : ", tokenizer.encode(SPECIAL_TOKENS_DICT['guesser']))
 
     # Load Checkpoint
     if args.checkpoint_path != "":
-        model.load_state_dict(torch.load(args.checkpoint_path+'/model_state_dict.pt'))
+        model.load_state_dict(args.checkpoint_path+'/model_state_dict.pt')
 
     args.device = torch.device(args.device)
     model.to(args.device)
-    # model = nn.DataParallel(model)
+    # Check if we will do multi-gpu training
+    if torch.cuda.device_count() > 1:
+        print("Activating DataParallel with {} gpus".format(torch.cuda.device_count()))
+        model = nn.DataParallel(model)
+        args.n_gpus = torch.cuda.device_count()
+    else:
+        args.n_gpus = 1
   
     # Crearte Output dir
     p=Path(args.output_dir)

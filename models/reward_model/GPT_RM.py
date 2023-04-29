@@ -165,6 +165,47 @@ class GPTJModel(transformers.models.gptj.modeling_gptj.GPTJModel):
         super().__init__(config)
         convert_to_int8(self)
 
+# This model will bewrap the GPT with Value Head below so we can 
+# derive loss locally for each gpu. (So we can grow DataPrallel)
+class GPTJForRewardComparison(nn.Module):
+    
+    def __init__(self, val_head_model:str, low_cpu_mem = True):
+        # Create it form within
+        super().__init__()
+        self.gpt_w_valhead = GPTJForCausalLMWithValueHead.from_pretrained(val_head_model,low_cpu_mem_usage=low_cpu_mem)
+        # Add the adapters
+        self.gpt_w_valhead.gradient_checkpointing_enable()
+        add_adapters(self.gpt_w_valhead)
+        
+    def load_state_dict(self,path:str):
+        self.gpt_w_valhead.load_state_dict(torch.load(path))
+        self.gpt_w_valhead.eval()
+
+    def forward(
+            self, gcombo, bcombo, gattmasks, battmasks,
+            gtypeids,btypeids,
+            use_cache=False
+            ):
+
+        #Feed Data to Head
+        gout = self.gpt_w_valhead(input_ids = gcombo,attention_mask= gattmasks, token_type_ids=gtypeids, use_cache=False)
+        # logger.debug("BCombo[0]  for thistep :\n{}".format(tokenizer.decode(bcombo[0])))
+        bout = self.gpt_w_valhead(input_ids = bcombo,attention_mask= battmasks, token_type_ids=btypeids, use_cache=False)
+
+        gscore = gout.logits
+        bscore = bout.logits
+
+        # Calculate the Score here
+        loss = -F.logsigmoid(gscore - bscore).mean()
+
+        logits = torch.cat([gscore, bscore], dim=1)
+        return CausalLMOutputWithPast(
+            loss=loss,
+            logits=logits,# Good goes first, bad goes second
+            past_key_values=None,# TODO: NOt sure if I have to add these, if so will it be enough to just concatenate?
+            hidden_states=None,
+            attentions=None,
+        )
 
         
 class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJForCausalLM):
@@ -249,6 +290,7 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
         # Do some drop out
         dropped_hstates = self.dropout(last_hstates)
 
+        loss =None
 
         if self.model_parallel:
             torch.cuda.set_device(self.transformer.first_device)
@@ -261,7 +303,6 @@ class GPTJForCausalLMWithValueHead(transformers.models.gptj.modeling_gptj.GPTJFo
         lm_logits = self.val_head(dropped_hstates)
         # This gives memy scalar 
 
-        loss = None
         assert labels == None, print('We are not yet working with labels')
 
         if not return_dict:     

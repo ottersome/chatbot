@@ -100,8 +100,8 @@
         "python": "/Users/rac716/miniforge3/envs/rs39/bin/python3.9",
         "pathMappings": [
           {
-            //"localRoot": "/Users/rac716/Projects/Huginns/Flow/models/reward_model",
-            "localRoot": "/home/ottersome/Projects/Huginns/chatbot/models/reward_model",
+            "localRoot": "/Users/rac716/Projects/Huginns/Flow/models/reward_model",
+            //"localRoot": "/home/ottersome/Projects/Huginns/chatbot/models/reward_model",
             //"remoteRoot": "/home/racc/NLP/chatbot/models/reward_model"
             "remoteRoot": "/root/chatbot/models/reward_model"
           }

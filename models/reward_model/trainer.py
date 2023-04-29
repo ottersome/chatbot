@@ -65,10 +65,39 @@ def save_checkpoint(model, optimizer, args,tinfo):
     os.makedirs(output_dir, exist_ok=True)
     logger.info("Saving model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
 
-    torch.save(model.state_dict(),os.path.join(output_dir,"model_state_dict.pt")) # For DataParallel
+    gval_head = model.gpt_w_valhead
+    if isinstance(model,torch.nn.DataParallel):
+        gval_head = model.module.gpt_w_valhead
+    torch.save(model.module.gpt_w_valhead.state_dict(),os.path.join(output_dir,"model_state_dict.pt")) # For DataParallel
     # torch.save(model,os.path.join(output_dir,"model_state_dict.pt")) # Single Gpu
     torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
     torch.save(tinfo, os.path.join(output_dir, "tinfo.bin"))
+
+def test_memory_overflow(batch, model, tokenizer, args):
+
+    gcombo, bcombo, gtypeids, btypeids =  batch
+    gmasks, bmasks = get_mask(gcombo,0,tokenizer.eos_token_id), get_mask(bcombo,0,tokenizer.eos_token_id)
+
+    gcombo = gcombo.to(args.device)
+    bcombo = bcombo.to(args.device)
+    gmasks = gmasks.to(args.device)
+    bmasks = bmasks.to(args.device)
+    gtypeids = gtypeids.to(args.device)
+    btypeids = btypeids.to(args.device)
+
+    model.train()
+    model.zero_grad()
+
+    logger.info("Testing memory Consumption with Largest batch")
+    output = model(gcombo,bcombo,gmasks, bmasks, gtypeids,btypeids)
+    logger.info("Current Memory Consumption")
+    loss = output.loss
+    loss.mean()
+    loss.backward()
+
+    del loss, gcombo, bcombo, gmasks, bmasks, gtypeids, btypeids
+    logger.info("Cleared Memory Consumption")
+
     
 
 def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
@@ -98,20 +127,10 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
         btids_padded = pad_sequence(btids, batch_first=True, padding_value=tokenizer.pad_token_id)
         return g_padded,b_padded, gtids_padded, btids_padded
     
-    # no_decay = ["bias", "LayerNorm.weight"]
-    # optimizer_grouped_parameters = [
-           # {
-               # "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-               # "weight_decay": args.weight_decay,
-           # },
-           # {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
-       # ]
-
     # Choose Adam as optimizer
     #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     #optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     # optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=2)
     no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
            {
@@ -151,15 +170,12 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     train_sampler = RandomSampler(dataset)
     train_dataloader = DataLoader(dataset,sampler=train_sampler, batch_size=batch_size, collate_fn=collate, drop_last=True)
 
-    # Start Model and resize token embeddings
-    #model.resize_token_embeddings(len(tokenizer))
-    # no_decay = ["bias","LayerNorm.weight"]
-
+    # Test for Memory Break
+    model_to_test = model.module if isinstance(model, torch.nn.DataParallel)  else  model
+    test_memory_overflow(dataset.get_longest_batch(batch_size//args.n_gpus), model, tokenizer,args)
 
     # TODO: Maybe do gradient accumulation again?
-    #total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
     total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
-
 
     # scheduler = get_linear_schedule_with_warmup(
         # optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_training_steps
@@ -195,7 +211,6 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
         within_epoch_iterator = tqdm(train_dataloader, initial=tinfo['saved_step'],desc="Iteration", leave=False)
         tinfo['epoch'] += 1
         for batch in within_epoch_iterator:
-            # <COmbos are all properly context+response>
             optimizer.zero_grad()
             gcombo, bcombo, gtypeids, btypeids =  batch
 
@@ -208,43 +223,37 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             gtypeids = gtypeids.to(args.device)
             btypeids = btypeids.to(args.device)
 
-            # Skip Long Examples
-            # if inputs.shape[1] > 4096:
-                # print("Skipping this example")
-                # continue
-
-
             model.train()
 
-            #outputs  = model(inputs,labels=labels) # THis is for useing the internal loss function
-            # TODO Maks for padding the batch 
             logger.info("Length of gcombo: {} and bcombo {}".format(gcombo.shape, bcombo.shape) )
-            # extra_zeros = torch.tensor([[0]]*inputs.shape[0]).to(args.device)
-            # labels = torch.cat([inputs[:,1:], extra_zeros],axis=1)
-            # Labels can be set = inputs segun la documentacion
-            # logger.debug("GCombo[0]  for thistep :\n{}".format(tokenizer.decode(gcombo[0])))
-            gscore  = model(input_ids = gcombo,attention_mask= gmasks, token_type_ids=gtypeids, use_cache=False)
-            # logger.debug("BCombo[0]  for thistep :\n{}".format(tokenizer.decode(bcombo[0])))
-            bscore  = model(input_ids = bcombo,attention_mask= bmasks, token_type_ids=btypeids, use_cache=False)
+
+            output = model(gcombo,bcombo,gmasks, bmasks, gtypeids,btypeids)
+
+            loss = output.loss
+            logits = output.logits
+            gscore = output.logits[:,0].detach()
+            bscore = output.logits[:,1].detach()
 
             # Our own Loss
             #  loss = -torch.log(torch.sigmoid(gscore.logits - bscore.logits))
-            #  loss = loss.mean()
-            loss = -logsigmoid(gscore.logits - bscore.logits).mean()
-            #  margin = 1.0  # You can set the margin to a suitable value
-            #  loss = torch.clamp(margin - (gscore.logits - bscore.logits), min=0).mean()
-
-
+            if args.n_gpus > 1:# For sake of clarity
+                loss = loss.mean()
+            
             # Calculate Gradients
             loss.backward()
 
             desc=""
+            gval_head = model.gpt_w_valhead
+            if isinstance(model,torch.nn.DataParallel):
+                gval_head = model.module.gpt_w_valhead
+            transformer = gval_head.transformer
             #print("Scores are : g:{}\n\t and b:{}".format(gscore.logits.item(),bscore.logits.item()))
-            desc+="Scores are : g:{}\n\t and b:{}\n".format(gscore.logits.mean().item(),bscore.logits.mean().item())
+            # print(model)
+            desc+="Scores are : g:{}\n\t and b:{}\n".format(gscore,bscore)
             desc+="Learning Rates is : {}\n".format(scheduler.get_lr())
-            desc+="Transformer Block Weights Norm: {}\n".format(model.transformer.h[27].attn.q_proj.adapter[0].weight.abs().sum())
-            desc+="Transformer Block Weights Grad: {}\n".format(model.transformer.h[27].attn.q_proj.adapter[0].weight.grad.abs().sum())
-            desc+="Value  Weights Norm: {}\n".format(model.val_head.weight.abs().sum())
+            desc+="Transformer Block Weights Norm: {}\n".format(transformer.h[27].attn.q_proj.adapter[0].weight.abs().sum())
+            desc+="Transformer Block Weights Grad: {}\n".format(transformer.h[27].attn.q_proj.adapter[0].weight.grad.abs().sum())
+            desc+="Value  Weights Norm: {}\n".format(gval_head.val_head.weight.abs().sum())
             logger.info(desc)
             print(desc)
             #desc+="Value  Weights Norm: {}\n".format(model.module.val_head.weight.abs().sum())
@@ -273,7 +282,7 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             tinfo['saved_step'] +=1
             ### END OF BATCH ##
 
-            if tinfo['global_step'] % int(0.20*(dataset.len()/args.batch_size_per_gpu)) == 0:
+            if tinfo['global_step'] % int(0.1*(dataset.len()/args.batch_size_per_gpu)) == 0:
                 save_checkpoint(model, optimizer,args,tinfo)
         
         tinfo['saved_step'] =0
