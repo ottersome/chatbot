@@ -65,13 +65,17 @@ def save_checkpoint(model, optimizer, args,tinfo):
     os.makedirs(output_dir, exist_ok=True)
     logger.info("Saving model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
 
-    gval_head = model.gpt_w_valhead
+    print("Saving model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
+
     if isinstance(model,torch.nn.DataParallel):
         gval_head = model.module.gpt_w_valhead
+    else:
+        gval_head = model.gpt_w_valhead
     torch.save(model.module.gpt_w_valhead.state_dict(),os.path.join(output_dir,"model_state_dict.pt")) # For DataParallel
     # torch.save(model,os.path.join(output_dir,"model_state_dict.pt")) # Single Gpu
     torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
     torch.save(tinfo, os.path.join(output_dir, "tinfo.bin"))
+    print("Done model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
 
 def test_memory_overflow(batch, model, tokenizer, args):
 
@@ -105,15 +109,17 @@ def test_memory_overflow(batch, model, tokenizer, args):
 def get_mem_use(args):
     string= ""
     for i in range(args.n_gpus):
-        string += "gpu{} is : {:.2f}%,".format(i, torch.cuda.memory_allocated('cuda:'+str(i))/torch.cuda.max_memory_allocated('cuda:{}'.format(i)))
+        # string += "gpu{} is : {:.2f}%,".format(i, torch.cuda.memory_allocated('cuda:'+str(i))/torch.cuda.max_memory_allocated('cuda:{}'.format(i)))
+        string += "max gpu{} is : {:.2f} GB,".format(i, torch.cuda.max_memory_allocated('cuda:{}'.format(i))/1e9 )
     return string
 
-def get_mem_use_tinfo(args,tinfo):
+def get_mem_use_tinfo(args,tinfo,prefix):
     string= ""
     for i in range(args.n_gpus):
         amnt = torch.cuda.memory_allocated('cuda:'+str(i))/torch.cuda.max_memory_allocated('cuda:'+str(i))
         string += "gpu{} is : {:.2f}%,".format(i, amnt)
-        tinfo['mem_use_gpu'+str(i)].append(amnt)
+        #tinfo[prefix+'_mem_use_gpu'+str(i)].append(amnt)
+        tinfo.setdefault(prefix+'_mem_use_gpu'+str(i),[]).append(amnt)
     return string
 
 def write_to_tensorboard(summwritter: SummaryWriter,tinfo: Dict, epoch):
@@ -169,8 +175,8 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
     tinfo = {"loss" : 0,"epoch": 1,"global_step" : 0 , "saved_step" : 0,"epoch_wise_loss" : [],"avg_loss":[], "epoch_wise_valloss" : []}
     # Add GPU Memory Usage
-    for i in range(args.n_gpus):
-        tinfo['mem_use_gpu'+str(i)] = []
+    # for i in range(args.n_gpus):
+        # tinfo['mem_use_gpu'+str(i)] = []
 
     ########################################
     # Load Checkpoint
@@ -230,18 +236,16 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     tr_loss = 0.0
     set_seed(args.seed)
     epoch_wise_valloss = tinfo['epoch_wise_valloss']
-    
 
     logger.info("We will do savings per batch : {}".format(int(0.1*(dataset.len()/args.batch_size_per_gpu))))
 
     for _ in train_iterator:
         within_epoch_iterator = tqdm(train_dataloader, initial=tinfo['saved_step'],desc="Iteration", leave=False)
-        tinfo['epoch'] += 1
         step = 0
         for batch in within_epoch_iterator:
             desc=""
             desc+= 'Epoch wise start memory use : '+get_mem_use(args)+'\n'
-            get_mem_use_tinfo(args,tinfo)
+            get_mem_use_tinfo(args,tinfo, prefix="begin_loop")
             
             optimizer.zero_grad()
             gcombo, bcombo, gtypeids, btypeids =  batch
@@ -260,8 +264,10 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             logger.info("Length of gcombo: {} and bcombo {}".format(gcombo.shape, bcombo.shape) )
 
             output = model(gcombo,bcombo,gmasks, bmasks, gtypeids,btypeids)
-
+            
+            get_mem_use_tinfo(args,tinfo, prefix="aft_forw")
             desc+= 'After loss calculated: '+get_mem_use(args)+'\n'
+
             loss = output.loss
             gscore = output.logits[:,0].detach()
             bscore = output.logits[:,1].detach()
@@ -273,6 +279,7 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             # Calculate Gradients
             loss.backward()
             desc+= 'After loss backward use'+get_mem_use(args)+'\n'
+            get_mem_use_tinfo(args,tinfo, prefix="aft_loss")
 
             gval_head = model.module.gpt_w_valhead
             if isinstance(model,torch.nn.DataParallel):
@@ -316,7 +323,9 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
 
             if tinfo['global_step'] % int(0.1*(dataset.len()/args.batch_size_per_gpu)) == 0:
                 save_checkpoint(model, optimizer,args,tinfo)
-        
+
+
+        tinfo['epoch'] += 1
         scheduler.step()
         tinfo['saved_step'] =0
         ########################################
