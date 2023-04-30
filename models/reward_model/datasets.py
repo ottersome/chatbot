@@ -3,6 +3,7 @@ import pickle
 import torch
 import pandas as pd
 from tqdm import tqdm, trange
+from torch.nn.utils.rnn import pad_sequence
 from transformers import PreTrainedTokenizer
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
@@ -22,7 +23,8 @@ class BinaryFeedbackDataset(Dataset):
         self.tokenizer = tokenizer
 
         cached_features_file = os.path.join(directory, args.model_type+"cached_lm_")
-        self.samples = []
+        self.samples = [] # ALL Samples including 
+        self.active_samples = [] # Either Training or Test Samples depending on which is activated
         self.samples_lengths = [] # Lets keep an order of sizes
         self.longest_sample = None
         self.longest_sample_length = 0 
@@ -54,10 +56,8 @@ class BinaryFeedbackDataset(Dataset):
                 glen = len(interaction[0]+interaction[1])
                 blen = len(interaction[0]+interaction[2])
                 # We are runnign out of memory for promopts bigger than 1000
-                if glen <= 1000 or blen  <= 1000:
+                if glen <= 1000 and blen  <= 1000:
                     self.samples.append(interaction)
-                    self.longest_sample_length = max(self.longest_sample_length,glen+blen)
-                    self.samples_lengths.append((len(self.samples)-1,glen+blen))
                 else: 
                     samples_removed += 1
 
@@ -73,13 +73,14 @@ class BinaryFeedbackDataset(Dataset):
                             , filo, protocol=pickle.HIGHEST_PROTOCOL)
         #
         # Create the Split
+        self.train, self.test = train_test_split(self.samples,test_size=0.1)
+        self.active_samples =  self.train if is_train else self.test 
+
         self.longest_sample = self.samples[self.samples_lengths[0][0]]
         good = len(self.longest_sample[0]) +  len(self.longest_sample[1])
         bad = len(self.longest_sample[0]) +  len(self.longest_sample[2])
         self.longest_sample_length = good + bad - len(self.longest_sample[0])
         print("Longest Sample length is good:", good, " bad:",bad)
-        self.train, self.test = train_test_split(self.samples,test_size=0.1)
-        self.samples =  self.train if is_train else self.test 
 
     def change_mode(self,is_train: bool):
         self.is_train = is_train
@@ -91,34 +92,42 @@ class BinaryFeedbackDataset(Dataset):
         goods, bads = [],[]
         gtypeids, btypeids = [],[]
         print('Longest Sample: ', self.longest_sample_length)
+        print('\tBroken Down: g', len(self.longest_sample[0] + self.longest_sample[1]),
+              " & b:",len(self.longest_sample[0] + self.longest_sample[2]))
+
         longest_example =  self.longest_sample
+        #longest_example =  self.samples[self.samples_lengths[0][0]]
         # These determine the second dimension of our batches
         gbatch_width = len(longest_example[0])+len(longest_example[1])
         bbatch_width = len(longest_example[0])+len(longest_example[2])
         print('Length of longest example: gcombo ',gbatch_width, ' bcombo', bbatch_width )
 
-        gbatch = torch.zeros((batch_size,gbatch_width),dtype=torch.long)
-        bbatch = torch.zeros((batch_size,bbatch_width),dtype=torch.long)
-        gtypeids = torch.zeros((batch_size,gbatch_width),dtype=torch.int)
-        btypeids = torch.zeros((batch_size,bbatch_width),dtype=torch.int)
+        gbatch   = [] 
+        bbatch   = [] 
+        gtypeids = [] 
+        btypeids = [] 
 
-        print("Batch Dimensions are gbatch:{} and bbatch:{}".format(gbatch.shape, bbatch.shape))
+        #print("Batch Dimensions are gbatch:{} and bbatch:{}".format(gbatch.shape, bbatch.shape))
 
         ctr = 0
-        print('Size of the samples lengths is ' , len(self.samples))
+        # print('Size of the samples lengths is ' , len(self.samples))
         for idx, length in self.samples_lengths:
             if ctr >= batch_size: break
-            print("\tidx_{}:length_{}".format(idx, length))
+            # print("\tidx_{}:length_{}".format(idx, length))
             gcombo = self.samples[idx][0] + self.samples[idx][1]
             bcombo = self.samples[idx][0] + self.samples[idx][2]
 
-            print('gmcombo length is ', len(gcombo), 'while ten tensor shape is  ', torch.tensor(gcombo).shape)
-            gbatch[ctr,:len(gcombo)] = torch.tensor(gcombo)
-            bbatch[ctr,:len(bcombo)] = torch.tensor(bcombo)
-            gtypeids[ctr,:len(gcombo)] = torch.tensor([0]*len(self.samples[idx][0]) + [1]*len(self.samples[idx][1]))
-            btypeids[ctr,:len(bcombo)] = torch.tensor([0]*len(self.samples[idx][0]) + [1]*len(self.samples[idx][2]))
+            # print('gmcombo length is ', len(gcombo), 'while bcombo length is  ', len(bcombo))
+            gbatch.append(torch.tensor(gcombo))
+            bbatch.append(torch.tensor(bcombo))
+            gtypeids.append(torch.tensor([0]*len(self.samples[idx][0]) + [1]*len(self.samples[idx][1])))
+            btypeids.append(torch.tensor([0]*len(self.samples[idx][0]) + [1]*len(self.samples[idx][2])))
 
             ctr += 1
+        gbatch = pad_sequence(gbatch, batch_first=True) 
+        bbatch = pad_sequence(bbatch, batch_first=True)
+        gtypeids = pad_sequence(gtypeids, batch_first=True)
+        btypeids = pad_sequence(btypeids, batch_first=True)
 
         batch = (gbatch,bbatch,gtypeids,btypeids)
 
@@ -151,13 +160,13 @@ class BinaryFeedbackDataset(Dataset):
 
     def __getitem__(self,idx):
         # TODO not hard code this so much 
-        #  good = self.samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.samples[idx][1]
-        #  bad = self.samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.samples[idx][1]
-        good = self.samples[idx][0] + self.samples[idx][1]
-        bad = self.samples[idx][0] + self.samples[idx][2]
-        ctx_len = len(self.samples[idx][0])
-        good_len = len(self.samples[idx][1])
-        bad_len = len(self.samples[idx][2])
+        #  good = self.active_samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.active_samples[idx][1]
+        #  bad = self.active_samples[idx][0] + self.tokenizer.encode('<|SEP|>') + self.active_samples[idx][1]
+        good = self.active_samples[idx][0] + self.active_samples[idx][1]
+        bad = self.active_samples[idx][0] + self.active_samples[idx][2]
+        ctx_len = len(self.active_samples[idx][0])
+        good_len = len(self.active_samples[idx][1])
+        bad_len = len(self.active_samples[idx][2])
 
         out = {
                 "gcombo" : torch.tensor(good,dtype=torch.long),
@@ -172,4 +181,4 @@ class BinaryFeedbackDataset(Dataset):
         return self.len()
 
     def len(self):
-        return len(self.samples)
+        return len(self.active_samples)
