@@ -7,11 +7,26 @@ import glob
 import random
 from typing import Dict, List, Tuple
 import pandas as pd
-from GPTJ8bit import *
+#from GPTJ8bit import *
 import numpy as np
 from torch.nn.utils.rnn import pad_sequence
 
 import torch.distributed as dist
+
+import torch_xla
+import torch_xla.debug.metrics as met
+import torch_xla.distributed.data_parallel as dp
+import torch_xla.distributed.parallel_loader as pl
+import torch_xla.utils.utils as xu
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.xla_multiprocessing as xmp
+import torch_xla.test.test_utils as test_utils
+
+from torch.nn.utils.rnn import pad_sequence
+from torch.nn.functional import pad
+from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
+from torch.utils.data.distributed import DistributedSampler
+
 
 from pathlib import Path
 from tqdm.notebook import tqdm#, range
@@ -62,14 +77,17 @@ if __name__=='__main__':
 
     #config = AutoConfig.from_pretrained(args.config_name, cache_dir=args.cache_dir)
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
-    model = GPTJForCausalLM.from_pretrained("hivemind/gpt-j-6B-8bit", low_cpu_mem_usage=True)
+    #model = GPTJForCausalLM.from_pretrained("hivemind/gpt-j-6B-8bit", low_cpu_mem_usage=True)
+    model = GPTJForCausalLM.from_pretrained("dolly-v2-12b", low_cpu_mem_usage=True)
     add_adapters(model)
     model.gradient_checkpointing_enable()
     # Load Checkpoint
     if args.checkpoint_path != "":
         model.load_state_dict(torch.load(args.checkpoint_path+'/model_state_dict.pt'))
 
-    args.device = torch.device(args.device)
+    #args.device = torch.device(args.device)
+    args.device = xm.xla_device()
+    model = model.to(device)
     model.to(args.device)
     #  model = nn.DataParallel(model)
   

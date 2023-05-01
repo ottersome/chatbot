@@ -17,6 +17,15 @@ import torch.nn.functional as F
 from datasets import *
 # from pytorch_memlab import LineProfiler, MemReporter
 # from GPUtil import showUtilization as gpu_usage
+#
+import torch_xla
+import torch_xla.debug.metrics as met
+import torch_xla.distributed.data_parallel as dp
+import torch_xla.distributed.parallel_loader as pl
+import torch_xla.utils.utils as xu
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.xla_multiprocessing as xmp
+import torch_xla.test.test_utils as test_utils
 
 from torch.nn.utils.rnn import pad_sequence
 from torch.nn.functional import pad
@@ -68,13 +77,69 @@ def save_checkpoint(model, optimizer, args,tinfo):
     torch.save(model.module.state_dict(),os.path.join(output_dir,"model_state_dict.pt"))
     torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
     torch.save(tinfo, os.path.join(output_dir, "tinfo.bin"))
+
+def train_loop(data_loader, model, optimizer, device, scheduler=None):
+    model.train()
+    for bi, d in enumerate(data_loader):
+        inputs =  batch
+        masks = get_mask(inputs,0,tokenizer.eos_token_id)
+
+        masks = masks.to(args.device)
+
+        # Skip Long Examples
+        if inputs.shape[1] > 4096:
+            print("Skipping this example")
+            continue
+
+        inputs = inputs.to(args.device)
+        model.train()
+
+        #outputs  = model(inputs,labels=labels) # THis is for useing the internal loss function
+        # TODO Maks for padding the batch 
+        logger.info("Length of sttring: {}".format(inputs.shape) )
+        # extra_zeros = torch.tensor([[0]]*inputs.shape[0]).to(args.device)
+        # labels = torch.cat([inputs[:,1:], extra_zeros],axis=1)
+        # Labels can be set = inputs segun la documentacion
+        out  = model.forward(input_ids = inputs,labels=inputs,attention_mask= masks, use_cache=False)
+        loss = out[0].mean()
+
+        #loss = outputs[0]
+        # loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
+        tinfo['epoch_wise_loss'].append(loss.mean().item())
+
+        loss.backward()
+        tr_loss += loss.item()
+
+        # Here we might use accumulation steps
+        optimizer.step()
+        #  scheduler.step()
+        optimizer.zero_grad()
+        tinfo['global_step']+=1
+
+        print("Loss is just straight up :", loss)
+        print("Embedding Weights:", model.transformer.h[26].attn.q_proj.adapter[0].weight)
+
+
+        logger.info(f"Loss for epoch {tinfo['epoch']}, global steo {tinfo['global_step']} is {tr_loss/tinfo['global_step']}")
+        within_epoch_iterator.set_description('Current Batch Loss: {}'.format(tr_loss/tinfo['global_step']))
+
+        del inputs, masks, out, loss, batch
+        torch.cuda.empty_cache()
+        gc.collect()
+        tinfo['saved_step'] +=1
+        ### END OF BATCH ##
+
+        if tinfo['global_step'] % int(0.1*(dataset.len()/args.batch_size_per_gpu)) == 0:
+            save_checkpoint(model, optimizer,args,tinfo)
+
+
     
 def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
 
     # Chose Adam as optimizer
-    #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
+    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     #optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
+    #optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
     tinfo = {"loss" : 0,"epoch": 1,"global_step" : 0 , "saved_step" : 0,"epoch_wise_loss" : [], "epoch_wise_valloss" : []}
     ########################################
     # Load Checkpoint
@@ -151,59 +216,14 @@ def train(args, dataset: BotDataset, model: PreTrainedModel, tokenizer: PreTrain
     logger.info("We will do savings per batch : {}".format(int(0.1*(dataset.len()/args.batch_size_per_gpu))))
 
     for _ in train_iterator:
+        #within_epoch_iterator = tqdm(train_dataloader, initial=tinfo['saved_step'],desc="Iteration", leave=False)
         within_epoch_iterator = tqdm(train_dataloader, initial=tinfo['saved_step'],desc="Iteration", leave=False)
         tinfo['epoch'] += 1
         for batch in within_epoch_iterator:
-            inputs =  batch
-            masks = get_mask(inputs,0,tokenizer.eos_token_id)
+            # Thats it
+            para_loader = pl.ParallelLoader(data_loader,[args.device])
+            train_loop(para_loader.per_device_loader(device),model,optimizer,device)
 
-            masks = masks.to(args.device)
-
-            # Skip Long Examples
-            if inputs.shape[1] > 4096:
-                print("Skipping this example")
-                continue
-
-            inputs = inputs.to(args.device)
-            model.train()
-
-            #outputs  = model(inputs,labels=labels) # THis is for useing the internal loss function
-            # TODO Maks for padding the batch 
-            logger.info("Length of sttring: {}".format(inputs.shape) )
-            # extra_zeros = torch.tensor([[0]]*inputs.shape[0]).to(args.device)
-            # labels = torch.cat([inputs[:,1:], extra_zeros],axis=1)
-            # Labels can be set = inputs segun la documentacion
-            out  = model.forward(input_ids = inputs,labels=inputs,attention_mask= masks, use_cache=False)
-            loss = out[0].mean()
-
-            #loss = outputs[0]
-            # loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
-            tinfo['epoch_wise_loss'].append(loss.mean().item())
-
-            loss.backward()
-            tr_loss += loss.item()
-
-            # Here we might use accumulation steps
-            optimizer.step()
-            #  scheduler.step()
-            optimizer.zero_grad()
-            tinfo['global_step']+=1
-
-            print("Loss is just straight up :", loss)
-            print("Embedding Weights:", model.transformer.h[26].attn.q_proj.adapter[0].weight)
-
-
-            logger.info(f"Loss for epoch {tinfo['epoch']}, global steo {tinfo['global_step']} is {tr_loss/tinfo['global_step']}")
-            within_epoch_iterator.set_description('Current Batch Loss: {}'.format(tr_loss/tinfo['global_step']))
-
-            del inputs, masks, out, loss, batch
-            torch.cuda.empty_cache()
-            gc.collect()
-            tinfo['saved_step'] +=1
-            ### END OF BATCH ##
-
-            if tinfo['global_step'] % int(0.1*(dataset.len()/args.batch_size_per_gpu)) == 0:
-                save_checkpoint(model, optimizer,args,tinfo)
         
         tinfo['saved_step'] =0
         ########################################

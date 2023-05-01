@@ -165,4 +165,4 @@ def add_adapters(model, adapter_dim=16):
             )
             nn.init.zeros_(module.adapter[1].weight)
 
-transformers.models.gptj.modeling_gptj.GPTJBlock = GPTJBlock  # monkey-patch GPT-J
+# transformers.models.gptj.modeling_gptj.GPTJBlock = GPTJBlock  # monkey-patch GPT-J
