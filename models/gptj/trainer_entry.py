@@ -62,7 +62,7 @@ if __name__=='__main__':
 
     #config = AutoConfig.from_pretrained(args.config_name, cache_dir=args.cache_dir)
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, cache_dir = args.cache_dir)
-    model = GPTJForCausalLM.from_pretrained("hivemind/gpt-j-6B-8bit", low_cpu_mem_usage=True)
+    model = GPTJForCausalLM.from_pretrained(args.model_name_or_path, low_cpu_mem_usage=True)
     add_adapters(model)
     model.gradient_checkpointing_enable()
     # Load Checkpoint

@@ -59,7 +59,9 @@ def parse_args():
     parser.add_argument("--model_name_or_path",
                         dest='model_name_or_path',
                         #  default='microsoft/DialoGPT-medium',
-                        default='EleutherAI/gpt-j-6B',
+                        #default='EleutherAI/gpt-j-6B',
+                        #default='hivemind/gpt-j-6B-8bit',
+                        default='bigscience/bloomz-7b1',
                         type=str)
     parser.add_argument("--block_size",
                         dest='block_size',
