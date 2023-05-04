@@ -65,6 +65,7 @@ if __name__ == '__main__':
             auto_find_batch_size=True,
             num_train_epochs=1,
             output_dir="output",
+            logging_dir="runs",
             save_strategy="steps",
             save_steps=100,
             save_total_limit=8
