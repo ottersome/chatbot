@@ -19,18 +19,26 @@ from transformers import (
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
+from peft import (
+        prepare_model_for_int8_training,
+        LoraConfig,
+        get_peft_model,
+        TaskType)
 #pipe = pipeline(model='EleutherAI/gpt-j-6B',model_kwargs={'device_map':"auto","load_in_8_bits":True})
-name = 'hivemind/gpt-j-6B-8bit'
-tokenizer = AutoTokenizer.from_pretrained('EleutherAI/gpt-j-6B')
-
+name = 'bigscience/bloomz-7b1'
+tokenizer = AutoTokenizer.from_pretrained(name)
 
 if len(sys.argv) > 1: 
-    #  model = AutoModelWithLMHead.from_pretrained('output/dialoggpt-medium-epoch-20')
-    model = GPTJForCausalLM.from_pretrained(name, low_cpu_mem_usage=True)
-    add_adapters(model)
-    model.load_state_dict(torch.load(sys.argv[1]+'/model_state_dict.pt'))
     device = torch.device('cuda')
-    model.to(device)
+    model = AutoModelForCausalLM.from_pretrained(name, load_in_8bit=True, device_map='auto')
+    # model = prepare_model_for_int8_training(model)
+    # lora_config = LoraConfig(
+            # r=16,lora_alpha=32, target_modules=["query_key_value"], lora_dropout=0.05, bias="none", task_type="CAUSAL_LM"
+            # )
+    # model = get_peft_model(model,lora_config)
+
+    # model.load_state_dict(torch.load(sys.argv[1]+'/pytorch_model.bin'))
+
 else:
     # print("Using online model")
     # print('Setting Up Tokenizers and (Possibly) PreTrained Models')
@@ -42,15 +50,7 @@ else:
             cache_dir='./.my_cache/')
 
 
-# Let's chat for 5 lines
-#
-now = datetime.now()
-logging.basicConfig(filename=now.strftime('./chats/%Y-%m-%d_%H:%M:%S'),
-                    filemode='a',
-                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
-
+model.eval()
 cur_length = 0
 # print('Conversation Starts:')
 while True:
@@ -58,6 +58,7 @@ while True:
     user_input = input("")
     logging.info("User: " +user_input)
     new_user_input_ids = tokenizer(user_input + tokenizer.eos_token, return_tensors='pt')
+    #new_user_input_ids = tokenizer(user_input , return_tensors='pt')
     new_user_input_ids  = new_user_input_ids.to(device)
     # print(new_user_input_ids)
 

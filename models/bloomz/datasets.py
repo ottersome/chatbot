@@ -56,7 +56,7 @@ class BotDataset(Dataset):
         self.train, self.test = train_test_split(self.samples,test_size=0.1)
         self.samples =  self.train if is_train else self.test 
 
-    def set_mode(mode = "train"):
+    def set_mode(self,mode = "train"):
         if mode!="train":
             del self.train
             self.samples= self.test
