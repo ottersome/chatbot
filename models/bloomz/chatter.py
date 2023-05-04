@@ -26,11 +26,13 @@ from peft import (
         TaskType)
 #pipe = pipeline(model='EleutherAI/gpt-j-6B',model_kwargs={'device_map':"auto","load_in_8_bits":True})
 name = 'bigscience/bloomz-7b1'
-tokenizer = AutoTokenizer.from_pretrained(name)
+#tokenizer = AutoTokenizer.from_pretrained(name)
+tokenizer = AutoTokenizer.from_pretrained("bigscience/bloomz-7b1")
 
 if len(sys.argv) > 1: 
     device = torch.device('cuda')
-    model = AutoModelForCausalLM.from_pretrained(name, load_in_8bit=True, device_map='auto')
+    #model = AutoModelForCausalLM.from_pretrained(name, load_in_8bit=True, device_map='auto')
+    model = AutoModelForCausalLM.from_pretrained("bigscience/bloomz-7b1",load_in_8bit=True,device_map="auto")
     # model = prepare_model_for_int8_training(model)
     # lora_config = LoraConfig(
             # r=16,lora_alpha=32, target_modules=["query_key_value"], lora_dropout=0.05, bias="none", task_type="CAUSAL_LM"
@@ -55,7 +57,7 @@ cur_length = 0
 # print('Conversation Starts:')
 while True:
     # encode the new user input, add the eos_token and return a tensor in Pytorch
-    user_input = input("")
+    user_input = input("User: ")
     logging.info("User: " +user_input)
     new_user_input_ids = tokenizer(user_input + tokenizer.eos_token, return_tensors='pt')
     #new_user_input_ids = tokenizer(user_input , return_tensors='pt')
@@ -67,7 +69,8 @@ while True:
     cur_length = bot_input_ids.shape[-1]
 
     # generated a response while limiting the total chat history to 1000 tokens, 
-    nth_output = model.generate(input_ids=bot_input_ids,max_length=2048, do_sample=True)
+    #nth_output = model.generate(input_ids=bot_input_ids, do_sample=True)
+    nth_output = model.generate(input_ids=bot_input_ids)
     
     decoded_output = tokenizer.decode(nth_output[0][cur_length:], max_length=cur_length+1000, skip_special_tokens=True, pad_token_id =0)
     logging.info('Bot: '+decoded_output)
