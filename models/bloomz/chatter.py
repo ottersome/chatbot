@@ -29,57 +29,27 @@ name = 'bigscience/bloomz-7b1'
 #tokenizer = AutoTokenizer.from_pretrained(name)
 tokenizer = AutoTokenizer.from_pretrained("bigscience/bloomz-7b1")
 
-if len(sys.argv) > 1: 
-    device = torch.device('cuda')
-    #model = AutoModelForCausalLM.from_pretrained(name, load_in_8bit=True, device_map='auto')
-    model = AutoModelForCausalLM.from_pretrained("bigscience/bloomz-7b1",load_in_8bit=True,device_map="auto")
-    # model = prepare_model_for_int8_training(model)
-    # lora_config = LoraConfig(
-            # r=16,lora_alpha=32, target_modules=["query_key_value"], lora_dropout=0.05, bias="none", task_type="CAUSAL_LM"
-            # )
-    # model = get_peft_model(model,lora_config)
-
-    # model.load_state_dict(torch.load(sys.argv[1]+'/pytorch_model.bin'))
-
-else:
-    # print("Using online model")
-    # print('Setting Up Tokenizers and (Possibly) PreTrained Models')
-    config = AutoConfig.from_pretrained(name, cache_dir='./.my_cache')
-    model = AutoModelWithLMHead.from_pretrained(
-            name, 
-            from_tf=False,
-            config=config,
-            cache_dir='./.my_cache/')
-
+model = AutoModelForCausalLM.from_pretrained("bigscience/bloomz-7b1", device_map="auto", load_in_8bit=True)
 
 model.eval()
 cur_length = 0
 # print('Conversation Starts:')
 while True:
     # encode the new user input, add the eos_token and return a tensor in Pytorch
-    user_input = input("User: ")
-    logging.info("User: " +user_input)
-    new_user_input_ids = tokenizer(user_input + tokenizer.eos_token, return_tensors='pt')
-    #new_user_input_ids = tokenizer(user_input , return_tensors='pt')
-    new_user_input_ids  = new_user_input_ids.to(device)
-    # print(new_user_input_ids)
+    user_input = input("User: ").strip()
+    new_user_input_ids = tokenizer.encode(user_input, return_tensors='pt').to('cuda')
 
     # append the new user input tokens to the chat history
-    bot_input_ids = torch.cat([nth_output, new_user_input_ids['input_ids']], dim=-1) if cur_length > 0 else new_user_input_ids['input_ids']
+    bot_input_ids = torch.cat([nth_output.to('cuda'), new_user_input_ids], dim=-1).to('cuda') if cur_length > 0 else new_user_input_ids
     cur_length = bot_input_ids.shape[-1]
 
     # generated a response while limiting the total chat history to 1000 tokens, 
     #nth_output = model.generate(input_ids=bot_input_ids, do_sample=True)
     nth_output = model.generate(input_ids=bot_input_ids)
     
-    decoded_output = tokenizer.decode(nth_output[0][cur_length:], max_length=cur_length+1000, skip_special_tokens=True, pad_token_id =0)
-    logging.info('Bot: '+decoded_output)
-    # pretty print last ouput tokens from bot
-    # print("botinput ids: ", bot_input_ids)
-    # print("Nth output:\n\t", nth_output)
+    decoded_output = tokenizer.decode(nth_output[0][cur_length:])
 
-    # print("{}".format(len(nth_output[0]),decoded_output))
-    print("{}".format(decoded_output))
+    print("Bot: {}".format(decoded_output))
     sys.stdout.flush()
 
 

@@ -28,7 +28,7 @@ from peft import (
 name = 'bigscience/bloomz-7b1'
 device = torch.device('cuda')
 tokenizer = AutoTokenizer.from_pretrained("bigscience/bloomz-7b1")
-model = AutoModelForCausalLM.from_pretrained("bigscience/bloomz-7b1",torch_dtype="auto", device_map='auto')
+model = AutoModelForCausalLM.from_pretrained("bigscience/bloomz-7b1", device_map="auto", load_in_8bit=True)
 
 model.eval()
 cur_length = 0
