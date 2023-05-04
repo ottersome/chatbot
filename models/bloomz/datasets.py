@@ -2,6 +2,7 @@ import os
 import pickle
 import torch
 import pandas as pd
+from utils import get_mask
 from tqdm import tqdm, trange
 from transformers import PreTrainedTokenizer
 from sklearn.model_selection import train_test_split
@@ -13,10 +14,11 @@ class BotDataset(Dataset):
     def __init__(self, tokenizer: PreTrainedTokenizer, args, logger,is_train = 1):
 
         self.is_train = 0
+        self.tokenzier =tokenizer
 
         # Start Caching Procedure
         directory = args.cache_dir
-        cached_features_file = os.path.join(directory, args.model_type+"cached_lm_")
+        cached_features_file = os.path.join(directory, args.model_type+"_cached_data")
 
         self.samples = []
 
@@ -28,6 +30,7 @@ class BotDataset(Dataset):
                 self.samples = pickle.load(filo)
         # If not exist than build it 
         else:
+            print('Dataset does not exist, creating its cache in  :',cached_features_file)
             logger.info("Creating cache of features from dataset at %s", cached_features_file)
 
             conv_df = pd.read_csv('../../datasets/fixed_ds.csv', sep='|')
@@ -42,7 +45,7 @@ class BotDataset(Dataset):
             # Training Data in one file
             for _,row in tqdm(final_ds.iterrows(), desc="Prepping Datasets"):
                 dialog = self.construct_convo(row,tokenizer)
-                if (len(dialog) > 0):
+                if len(dialog) > 0 and len(dialog) < 2047:
                     self.samples.append(dialog)# Single Row of df_train formatted for use
 
             logger.info("Saving Encoded Data into file at %s", cached_features_file)
@@ -84,7 +87,7 @@ class BotDataset(Dataset):
             convo_length = 0
             for conv in unit_convo : convo_length = convo_length + len(conv.split(' '))
             #assert convo_length < 1024# Otherwise it might be too big for the transformer
-            if convo_length >= 900:
+            if convo_length >= 2047:
                 print("Skipping convo with size {}".format(convo_length))
                 continue
             dialogues.append(unit_convo)
@@ -112,7 +115,15 @@ class BotDataset(Dataset):
         return final_convo
 
     def __getitem__(self,idx):
-        return torch.tensor(self.samples[idx], dtype=torch.long)
+        input_tensor = torch.tensor(self.samples[idx])
+        mask = torch.ones_like(input_tensor)
+        #labels = torch.tensor(self.samples[idx][1:])
+        labels = torch.tensor(self.samples[idx])
+        return {
+                "input_ids" : input_tensor,
+                "attention_mask" : mask,
+                "labels" : labels,
+                }
 
     def __len__(self):
         return self.len()
@@ -127,7 +138,7 @@ class DiscussionDataset(Dataset):
         # block_size = block_size  - (tokenizer.max_len - tokenizer.max_len_single_sentence)
 
         directory = args.cache_dir
-        cached_features_file = os.path.join(directory, args.model_type+"chached_lm_"+str(block_size))
+        cached_features_file = os.path.join(directory, args.model_type+"cached_lm_"+str(block_size))
 
         if os.path.exists(cached_features_file) and not args.overwrite_cached:
             logger.info("Loading cached features from cache file %s", cached_features_file)

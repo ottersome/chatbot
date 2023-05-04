@@ -11,7 +11,7 @@ def trainable_params(model):
         all_param += param.numel()
         if param.requires_grad:
             trainable_params += param.numel()
-    return trainable_params,all_params
+    return trainable_params,all_param
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -32,7 +32,7 @@ def parse_args():
                         type=str)
     parser.add_argument("--ds_path",
                         dest='dataset_path',
-                        required=True,
+                        required=False,
                         help='Path to your dataset for fine-tuning',
                         type=str)
     parser.add_argument("--logging_steps",
@@ -70,7 +70,8 @@ def parse_args():
                         #  default='microsoft/DialoGPT-medium',
                         #default='EleutherAI/gpt-j-6B',
                         #default='hivemind/gpt-j-6B-8bit',
-                        default='bigscience/bloomz-7b1',
+                        #default='bigscience/bloomz-7b1',
+                        default='bigscience/bloomz-7b1-p3',
                         type=str)
     parser.add_argument("--block_size",
                         dest='block_size',
