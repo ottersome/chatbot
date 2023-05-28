@@ -2,8 +2,13 @@ import os
 import torch
 import logging
 import copy
+import json
+import sys
+import wandb
+import bitsandbytes as bnb
 from datetime import date
 from datasets import *
+from huggingface_hub import login 
 from utils import *
 from typing import List, Dict
 from torch.utils.data import DataLoader
@@ -13,6 +18,7 @@ from transformers import (
         AutoModelForCausalLM,
         AutoTokenizer,
         TrainingArguments,
+        TrainerState,
         Trainer)
 os.environ['BITSANDBYTES_NOWELCOME'] = '1'
 from peft import (
@@ -20,13 +26,26 @@ from peft import (
         LoraConfig,
         get_peft_model,
         TaskType)
+from datetime import datetime
+
+
 
 def my_compute_metrics(p: EvalPrediction):
 
     return {'marco': 1}
 
+class MyTrainer(Trainer):
+    def on_train_begin(self, args, state, control, model, tokenizer=None, **kwargs):
+        print('We made it here and the globa_step we are setting is: ', checkpoint['epoch'])
+        super().on_train_begin(args, state, control, model, tokenizer, **kwargs)
+        checkpoint = json.load('trainer_state.json')
+        self.state.epoch        = checkpoint['epoch']
+        self.state.global_step = checkpoint['global_step']
+
+
 
 if __name__ == '__main__':
+    #login()
     logger = logging.getLogger(__name__)
 
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
@@ -40,7 +59,7 @@ if __name__ == '__main__':
     ########################################
     print('Loading Model...')
     args = parse_args()
-    model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, load_in_8bit=True, device_map="auto")
+    model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, load_in_8bit=True, device_map="auto", cache_dir = args.cache_dir)
     model.gradient_checkpointing_enable()
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, cache_dir = args.cache_dir)
 
@@ -61,6 +80,20 @@ if __name__ == '__main__':
     print(
             f"After Peft: Trainable params: {tparams} || all params: {allparams} || trainable%: {100 * tparams / allparams}"
     )
+    optimizer,scheduler = (None,None)
+    # This is for StepWise
+    if args.checkpoint_path != "":
+        print('Loading checkpoint from path: '.format(args.checkpoint_path))
+        model.load_state_dict(torch.load(args.checkpoint_path+'/pytorch_model.bin'))
+        # scheduler = torch.load(args.checkpoint_path+'/scheduler.pt')
+        # opt_params = torch.load(args.checkpoint_path+'/optimizer.pt')
+        # print(scheduler)
+        # optimizer = bnb.optim.Adam8bit(params=model.parameters())
+        # optimizer.load_state_dict(opt_params)
+
+        #checkpoint = torch.load(args.checkpoint_path+'/training_state.bin')
+    print('Optimizer looks like {}'.format(optimizer))
+
 
     ########################################
     # Load Data
@@ -93,35 +126,54 @@ if __name__ == '__main__':
 
         return batch
 
+    run_name = datetime.strftime(datetime.now(),'%Y_%m_%d-%H-%M_%S_train_run')
+    print('Naming run {}'.format(run_name))
+
     training_args = TrainingArguments(
             "temp",
             evaluation_strategy="steps",
             learning_rate=1e-5,
-            gradient_accumulation_steps=1,
-            auto_find_batch_size=True,
+            gradient_accumulation_steps=2,
+            #auto_find_batch_size=True,
+            per_device_train_batch_size=4,
             num_train_epochs=1,
             warmup_steps=100,
             logging_dir="runs",
             logging_steps=5,
             save_strategy="steps",
-            #report_to='tensorboard',
+            report_to='wandb',
             eval_steps=12,
-            save_steps=500,
+            save_steps=3000,
+            run_name=run_name,
             save_total_limit=2
             )
 
-    trainer = Trainer(
+    trainer = MyTrainer(
         model=model,
         data_collator=collator,
         args=training_args,
+        # optimizers=(optimizer,scheduler),
         train_dataset=train_dataset,
         #compute_metrics=my_compute_metrics,
         eval_dataset=eval_dataset
         )
+    # if args.checkpoint_path != "":
     model.config.use_cache = False
 
-    logger.info('Starting With Training')
-    trainer.train()
+    wandb.init(
+        project ='parrot',
+        config=model.config
+            )
+
+    if args.checkpoint_path != "":
+        state = TrainerState.load_from_json(args.checkpoint_path+'trainer_state.json')
+        trainer.state =state
+        last_checkpoint = args.checkpoint_path
+        trainer.train(resume_from_checkpoint=last_checkpoint)
+    else:
+        trainer.train()
+
+    model.push_to_hub("ottersome/bloomy", use_auth_token=True)
     # train_dataloader = DataLoader(
         # train_dataset, 
         # batch_size=None, 

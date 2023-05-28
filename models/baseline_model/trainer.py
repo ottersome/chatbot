@@ -1,6 +1,4 @@
 import glob
-import io
-import json
 import logging
 import os
 import pickle
@@ -14,7 +12,6 @@ import pandas as pd
 import numpy as np
 import torch
 import bitsandbytes as bnb
-import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 from datasets import *
@@ -27,9 +24,6 @@ from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampl
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 import gc
-
-# For Reporting to Telegram
-import requests
 
 from pathlib import Path
 
@@ -71,112 +65,13 @@ def save_checkpoint(model, optimizer, args,tinfo):
     os.makedirs(output_dir, exist_ok=True)
     logger.info("Saving model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
 
-    print("Saving model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
-
-    if isinstance(model,torch.nn.DataParallel):
-        gval_head = model.module.gpt_w_valhead
-    else:
-        gval_head = model.gpt_w_valhead
-    torch.save(model.module.gpt_w_valhead.state_dict(),os.path.join(output_dir,"model_state_dict.pt")) # For DataParallel
+    torch.save(model.transformer.state_dict(),os.path.join(output_dir,"model_state_dict.pt")) # For DataParallel
     # torch.save(model,os.path.join(output_dir,"model_state_dict.pt")) # Single Gpu
     torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
     torch.save(tinfo, os.path.join(output_dir, "tinfo.bin"))
-    print("Done model on the {}-th epoch and {}-th global step into {}".format(tinfo['epoch'],tinfo['global_step'], output_dir))
-
-def test_memory_overflow(batch, model, tokenizer, args):
-
-    gcombo, bcombo, gtypeids, btypeids =  batch
-    gmasks, bmasks = get_mask(gcombo,0,tokenizer.eos_token_id), get_mask(bcombo,0,tokenizer.eos_token_id)
-
-    gcombo = gcombo.to(args.device)
-    bcombo = bcombo.to(args.device)
-    gmasks = gmasks.to(args.device)
-    bmasks = bmasks.to(args.device)
-    gtypeids = gtypeids.to(args.device)
-    btypeids = btypeids.to(args.device)
-
-    optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
-
-    model.train()
-    model.zero_grad()
-
-    logger.info("Testing memory Consumption with Largest batch")
-    output = model(gcombo,bcombo,gmasks, bmasks, gtypeids,btypeids)
-    print('Supposed peak memory use : '+get_mem_use(args))
-    logger.info("Current Memory Consumption")
-    loss = output.loss.mean()
-    loss.backward()
-    optimizer.step()
-
-    del loss, gcombo, bcombo, gmasks, bmasks, gtypeids, btypeids
-    logger.info("Cleared Memory Consumption")
-
-
-def get_mem_use(args):
-    string= ""
-    for i in range(args.n_gpus):
-        # string += "gpu{} is : {:.2f}%,".format(i, torch.cuda.memory_allocated('cuda:'+str(i))/torch.cuda.max_memory_allocated('cuda:{}'.format(i)))
-        string += "max gpu{} is : {:.2f} GB,".format(i, torch.cuda.max_memory_allocated('cuda:{}'.format(i))/1e9 )
-    return string
-
-def get_mem_use_tinfo(args,tinfo,prefix):
-    string= ""
-    for i in range(args.n_gpus):
-        amnt = torch.cuda.memory_allocated('cuda:'+str(i))/torch.cuda.max_memory_allocated('cuda:'+str(i))
-        string += "gpu{} is : {:.2f}%,".format(i, amnt)
-        #tinfo[prefix+'_mem_use_gpu'+str(i)].append(amnt)
-        tinfo.setdefault(prefix+'_mem_use_gpu'+str(i),[]).append(amnt)
-    return string
-
-def write_to_tensorboard(summwritter: SummaryWriter,tinfo: Dict, epoch):
-    for k,v in tinfo.items():
-        if isinstance(v,list) and len(v)!= 0:
-            summwritter.add_scalar(k,v[-1],epoch)
-
     
-def send_plot(x,y,message_id):
-    """
-    Prepared data should be json which includes at least `chat_id` and `plot_file`
-    """
-    plt.plot(x,y)
-    img = io.BytesIO()
-    plt.title('Average Loss')
-    plt.savefig(img,format='png')
-    img.seek(0)
-
-    # Update
-    if message_id!='':
-        url = 'https://api.telegram.org/bot'+os.environ['TTOKEN']+'/editMessageMedia'
-        data = {'chat_id', int(os.environ['TUSER'])}
-        message_url = 'https://api.telegram.org/bot'+os.environ['TTOKEN']+'/editMessageMedia'
-        files = {'photo':('avg_loss.png',img.getvalue())}
-        data = {
-                "chat_id": int(os.environ['TUSER']),
-                "message_id": message_id,
-                "media": json.dumps({
-                    "type": "photo",
-                    "media": 'attach://photo',
-                    "caption": 'Average Loss for Epoch '+str(len(x)),
-                })
-            }
-    else:
-        message_url = 'https://api.telegram.org/bot'+os.environ['TTOKEN']+'/sendPhoto'
-        files = {'photo':('avg_loss.png',img.getvalue())}
-        data = {'chat_id':int(os.environ['TUSER']),'caption':'Avg_loss'}
-
-    response = requests.post(message_url,files=files, data=data)
-    plt.clf()
-    if response.status_code == 200:
-        message_id = response.json()['result']['message_id']
-    else:
-        print('Error sending message:', response.text)
-
-    return message_id
-
 
 def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
-
-    tel_message_id = ''
 
     def collate(examples: List[torch.Tensor]):
         logger.info("Size of examples here is :"+str(len(examples)))
@@ -203,10 +98,20 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
         btids_padded = pad_sequence(btids, batch_first=True, padding_value=tokenizer.pad_token_id)
         return g_padded,b_padded, gtids_padded, btids_padded
     
+    # no_decay = ["bias", "LayerNorm.weight"]
+    # optimizer_grouped_parameters = [
+           # {
+               # "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+               # "weight_decay": args.weight_decay,
+           # },
+           # {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
+       # ]
+
     # Choose Adam as optimizer
     #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     #optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     # optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
+    optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=2)
     no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
            {
@@ -220,11 +125,7 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     #optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     #  optimizer = bnb.optim.Adam8bit(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
     optimizer = bnb.optim.Adam8bit(model.parameters(), lr=args.learning_rate, eps=args.adam_epsilon)
-    tinfo = {"loss" : 0,"epoch": 1,"global_step" : 0 , "saved_step" : 0,"epoch_wise_loss" : [],"avg_loss":[], "epoch_wise_valloss" : []}
-    # Add GPU Memory Usage
-    # for i in range(args.n_gpus):
-        # tinfo['mem_use_gpu'+str(i)] = []
-
+    tinfo = {"loss" : 0,"epoch": 1,"global_step" : 0 , "saved_step" : 0,"epoch_wise_loss" : [], "epoch_wise_valloss" : []}
     ########################################
     # Load Checkpoint
     ########################################
@@ -250,12 +151,15 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     train_sampler = RandomSampler(dataset)
     train_dataloader = DataLoader(dataset,sampler=train_sampler, batch_size=batch_size, collate_fn=collate, drop_last=True)
 
-    # Test for Memory Break
-    model_to_test = model.module if isinstance(model, torch.nn.DataParallel)  else  model
-    test_memory_overflow(dataset.get_longest_batch(batch_size), model, tokenizer,args)
+    # Start Model and resize token embeddings
+    #model.resize_token_embeddings(len(tokenizer))
+    # no_decay = ["bias","LayerNorm.weight"]
+
 
     # TODO: Maybe do gradient accumulation again?
+    #total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
     total_training_steps = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
+
 
     # scheduler = get_linear_schedule_with_warmup(
         # optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_training_steps
@@ -283,18 +187,15 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
     tr_loss = 0.0
     set_seed(args.seed)
     epoch_wise_valloss = tinfo['epoch_wise_valloss']
+    
 
     logger.info("We will do savings per batch : {}".format(int(0.1*(dataset.len()/args.batch_size_per_gpu))))
 
-    sent_plot = None
     for _ in train_iterator:
         within_epoch_iterator = tqdm(train_dataloader, initial=tinfo['saved_step'],desc="Iteration", leave=False)
-        step = 0
+        tinfo['epoch'] += 1
         for batch in within_epoch_iterator:
-            desc=""
-            desc+= 'Epoch wise start memory use : '+get_mem_use(args)+'\n'
-            get_mem_use_tinfo(args,tinfo, prefix="begin_loop")
-            
+            # <COmbos are all properly context+response>
             optimizer.zero_grad()
             gcombo, bcombo, gtypeids, btypeids =  batch
 
@@ -307,85 +208,77 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
             gtypeids = gtypeids.to(args.device)
             btypeids = btypeids.to(args.device)
 
+            # Skip Long Examples
+            # if inputs.shape[1] > 4096:
+                # print("Skipping this example")
+                # continue
+
+
             model.train()
 
+            #outputs  = model(inputs,labels=labels) # THis is for useing the internal loss function
+            # TODO Maks for padding the batch 
             logger.info("Length of gcombo: {} and bcombo {}".format(gcombo.shape, bcombo.shape) )
+            # extra_zeros = torch.tensor([[0]]*inputs.shape[0]).to(args.device)
+            # labels = torch.cat([inputs[:,1:], extra_zeros],axis=1)
+            # Labels can be set = inputs segun la documentacion
+            # logger.debug("GCombo[0]  for thistep :\n{}".format(tokenizer.decode(gcombo[0])))
+            # gscore  = model(input_ids = gcombo,attention_mask= gmasks, token_type_ids=gtypeids, use_cache=False)
+            # logger.debug("BCombo[0]  for thistep :\n{}".format(tokenizer.decode(bcombo[0])))
+            # bscore  = model(input_ids = bcombo,attention_mask= bmasks, token_type_ids=btypeids, use_cache=False)
 
-            output = model(gcombo,bcombo,gmasks, bmasks, gtypeids,btypeids)
-            
-            get_mem_use_tinfo(args,tinfo, prefix="aft_forw")
-            desc+= 'After loss calculated: '+get_mem_use(args)+'\n'
-
-            loss = output.loss
-            gscore = output.logits[:,0].detach()
-            bscore = output.logits[:,1].detach()
+            loss, logits = model((gcombo,bcombo),(gmasks, bmasks), (gtypeids,btypeids))
 
             # Our own Loss
+            #  loss = -torch.log(torch.sigmoid(gscore.logits - bscore.logits))
             if args.n_gpus > 1:# For sake of clarity
                 loss = loss.mean()
-            
+            # loss = -logsigmoid(gscore.logits - bscore.logits).mean()
+            #  margin = 1.0  # You can set the margin to a suitable value
+            #  loss = torch.clamp(margin - (gscore.logits - bscore.logits), min=0).mean()
+
             # Calculate Gradients
             loss.backward()
-            desc+= 'After loss backward use'+get_mem_use(args)+'\n'
-            get_mem_use_tinfo(args,tinfo, prefix="aft_loss")
 
-            gval_head = model.module.gpt_w_valhead
-            if isinstance(model,torch.nn.DataParallel):
-                gval_head = model.module.gpt_w_valhead
-            transformer = gval_head.transformer
-            # print(model)
-            desc+="Scores are : g:{}\n\t and b:{}\n".format(gscore,bscore)
+            desc=""
+            #print("Scores are : g:{}\n\t and b:{}".format(gscore.logits.item(),bscore.logits.item()))
+            print(model)
+            desc+="Scores are : g:{}\n\t and b:{}\n".format(gscore.logits.mean().item(),bscore.logits.mean().item())
             desc+="Learning Rates is : {}\n".format(scheduler.get_lr())
-            desc+="Transformer Block Weights Norm: {}\n".format(transformer.h[27].attn.q_proj.adapter[0].weight.abs().sum())
-            desc+="Transformer Block Weights Grad: {}\n".format(transformer.h[27].attn.q_proj.adapter[0].weight.grad.abs().sum())
-            desc+="Value  Weights Norm: {}\n".format(gval_head.val_head.weight.abs().sum())
+            desc+="Transformer Block Weights Norm: {}\n".format(model.transformer.h[27].attn.q_proj.adapter[0].weight.abs().sum())
+            desc+="Transformer Block Weights Grad: {}\n".format(model.transformer.h[27].attn.q_proj.adapter[0].weight.grad.abs().sum())
+            desc+="Value  Weights Norm: {}\n".format(model.val_head.weight.abs().sum())
             logger.info(desc)
             print(desc)
             #desc+="Value  Weights Norm: {}\n".format(model.module.val_head.weight.abs().sum())
             #loss = outputs[0]
+            # loss = F.cross_entropy(out.logits[:,:-1,:].flatten(0,-2), labels,reduction='mean')
             tinfo['epoch_wise_loss'].append(loss.item())
 
             tr_loss += loss.item()
 
-
             # Here we might use accumulation steps
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            desc+= 'After optimizer step: '+get_mem_use(args)+'\n'
+            scheduler.step()
             tinfo['global_step']+=1
-            tinfo['avg_loss'].append(tr_loss/tinfo['global_step'])
             
             # Log If Weights are changing
             #  print("Embedding Weights:", model.transformer.wte.adapter[1].weight)
 
+
             logger.info(f"Loss for epoch {tinfo['epoch']}, global steo {tinfo['global_step']} is {tr_loss/tinfo['global_step']}")
             within_epoch_iterator.set_description('CSLoss: {} CBLoss: {}'.format(loss.item(),tr_loss/tinfo['global_step']))
 
-            del gcombo,bcombo, gmasks, gtypeids,btypeids,bmasks, gscore,bscore, loss, batch
+            del gcombo,bcombo, gmasks, gtypeids,btypeids,bmasks, gscore, loss, batch
             torch.cuda.empty_cache()
             gc.collect()
             tinfo['saved_step'] +=1
-            step += 1
             ### END OF BATCH ##
-            ## Some Post-Processing of the Step Here:
 
-            write_to_tensorboard(tb_writer,tinfo, step)
-            # Send Data For Monitoring
-            if tinfo['global_step'] % 2:
-                tel_message_id = send_plot(
-                        np.arange(len(tinfo['avg_loss'])),
-                        np.array(tinfo['avg_loss']),
-                        tel_message_id)
-
-
-
-            # Save Checkpoint
-            if tinfo['global_step'] % int(0.1*(dataset.len()/args.batch_size_per_gpu)) == 0:
+            if tinfo['global_step'] % int(0.01*(dataset.len()/args.batch_size_per_gpu)) == 0:
                 save_checkpoint(model, optimizer,args,tinfo)
-
-
-        tinfo['epoch'] += 1
-        scheduler.step()
+        
         tinfo['saved_step'] =0
         ########################################
         # End of Epoch Maintenance
@@ -408,9 +301,9 @@ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenize
                 logger.info('We will now save this model and stop trianing ')
 
                 save_checkpoint(model, optimizer,args, tinfo)
-                # torch.save(tinfo['epoch_wise_valloss'],os.path.join(output_dir,'valloss.pt'))
-                # torch.save(tinfo['epoch_wise_loss'],os.path.join(output_dir,'loss.pt'))
-                # torch.save(optimizer.state_dict(),os.path.join(output_dir,'optimizer.pt'))
+                torch.save(tinfo['epoch_wise_valloss'],os.path.join(output_dir,'valloss.pt'))
+                torch.save(tinfo['epoch_wise_loss'],os.path.join(output_dir,'loss.pt'))
+                torch.save(optimizer.state_dict(),os.path.join(output_dir,'optimizer.pt'))
                 print(f'We have hit early stopping at epoch {tinfo["epoch"]} saving and breaking now...')
                 
                 break

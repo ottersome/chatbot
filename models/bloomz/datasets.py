@@ -59,7 +59,7 @@ class BotDataset(Dataset):
     def set_mode(self,mode = "train"):
         if mode!="train":
             del self.train
-            self.samples= self.test
+            self.samples= self.test[:8]
         else:
             del self.test
             self.samples= self.train
@@ -105,7 +105,7 @@ class BotDataset(Dataset):
             #      convo.append(tokenizer_of_choice.encode(
             #          "<Add some prefixed string to the conversation here if needed>"))
             convo.append(tokenizer_of_choice.encode(col))
-            convo.append([tokenizer_of_choice.eos_token_id])
+            #convo.append([tokenizer_of_choice.eos_token_id]) # Bloomz does not seem to use EOS
 
         # convo.pop(-1)# Remove the last eos
         final_convo = [item for sublist in convo for item in sublist]

@@ -2,8 +2,6 @@ import sys
 import torch
 import logging
 from datetime import datetime
-from GPTJ8bit import *
-from pathlib import Path
 
 from torch.nn.utils.rnn import pad_sequence
 from transformers import utils
@@ -20,71 +18,62 @@ from transformers import (
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
+from peft import (
+        prepare_model_for_int8_training,
+        LoraConfig,
+        PeftConfig,
+        get_peft_model,
+        TaskType)
+
+name = 'bigscience/bloomz-7b1'
 #pipe = pipeline(model='EleutherAI/gpt-j-6B',model_kwargs={'device_map':"auto","load_in_8_bits":True})
-name = 'hivemind/gpt-j-6B-8bit'
-tokenizer = AutoTokenizer.from_pretrained('EleutherAI/gpt-j-6B')
+#tokenizer = AutoTokenizer.from_pretrained(name)
+tokenizer = AutoTokenizer.from_pretrained("bigscience/bloomz-7b1")
 
+config = AutoConfig.from_pretrained('bigscience/bloomz-7b1')
+#model = AutoModelForCausalLM.from_pretrained("bigscience/bloomz-7b1", device_map="auto")
 
-if len(sys.argv) > 1: 
-    #  model = AutoModelWithLMHead.from_pretrained('output/dialoggpt-medium-epoch-20')
-    model = GPTJForCausalLM.from_pretrained(name, low_cpu_mem_usage=True)
-    add_adapters(model)
-    model.load_state_dict(torch.load(sys.argv[1]+'/model_state_dict.pt'))
-    device = torch.device('cuda')
-    model.to(device)
-else:
-    # print("Using online model")
-    # print('Setting Up Tokenizers and (Possibly) PreTrained Models')
-    config = AutoConfig.from_pretrained(name, cache_dir='./.my_cache')
-    model = AutoModelWithLMHead.from_pretrained(
-            name, 
-            from_tf=False,
-            config=config,
-            cache_dir='./.my_cache/')
+#model = AutoModelForCausalLM.from_pretrained(name,config=config,path=name,load_in_8_bits=True,device_map="auto",local_files_only=True)
+if len(sys.argv) > 1:
+    print('We assume your argument {} means checkpoint'.format(sys.argv[1]))
+    chkpnt = sys.argv[1]
+    model = AutoModelForCausalLM.from_pretrained(name,device_map="auto",load_in_8bit=True)
+    model = prepare_model_for_int8_training(model)
+    lora_config = LoraConfig(inference_mode=True,
+            r=16,lora_alpha=32, target_modules=["query_key_value"], lora_dropout=0.05, bias="none", task_type="CAUSAL_LM"
+            )
+    model = get_peft_model(model,lora_config)
+    model.state_dict = torch.load(chkpnt+'/pytorch_model.bin')
 
-
-# Let's chat for 5 lines
-stem = Path(sys.argv[1]).stem
-now = datetime.now()
-logging.basicConfig(filename=now.strftime('./chats/ckpnt_{}_%Y-%m-%d_%H:%M:%S'.format(stem)),
-                    filemode='a',
-                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.DEBUG)
-
-logging.info("Starting the debugging")
+model.eval()
 cur_length = 0
 # print('Conversation Starts:')
-while True:
-    #
-    # encode the new user input, add the eos_token and return a tensor in Pytorch
-    user_input = ""
-    while('\r' not in user_input):
-        user_input += input("") 
+with torch.no_grad():
+    while True:
+        # encode the new user input, add the eos_token and return a tensor in Pytorch
+        user_input = ""
+        while('\r' not in user_input):
+            user_input += input("") 
 
-    app_idx = user_input.find('\r')
-    user_input = user_input[:app_idx] 
-    logging.info("User: " +user_input)
-    user_input = tokenizer.eos_token.join(user_input.split('|')) 
+        app_idx = user_input.find('\r')
+        user_input = user_input[:app_idx] 
+        logging.info("User: " +user_input)
+        user_input = '.'.join(user_input.split('|')) 
 
-    logging.debug("Formatting input to  :{}".format(user_input))
-    
-    new_user_input_ids = tokenizer(user_input, return_tensors='pt')
-    new_user_input_ids  = new_user_input_ids.to(device)
-    # print(new_user_input_ids)
+        print('You said:\n',user_input)
+        new_user_input_ids = tokenizer.encode(user_input , return_tensors='pt').to('cuda')
 
-    # append the new user input tokens to the chat history
-    # Create the mask.
+        # append the new user input tokens to the chat history
+        bot_input_ids = torch.cat([nth_output.to('cuda'), new_user_input_ids], dim=-1).to('cuda') if cur_length > 0 else new_user_input_ids
+        cur_length = bot_input_ids.shape[-1]
 
-    # generated a response while limiting the total chat history to 1000 tokens, 
-    nth_output = model.generate(input_ids=new_user_input_ids['input_ids'],max_length=2048, do_sample=True)
-    cur_length = new_user_input_ids['input_ids'].shape[-1]
-    
-    decoded_output = tokenizer.decode(nth_output[0][cur_length:], max_length=cur_length+1000, skip_special_tokens=True, temperature=0.9, pad_token_id =0)
-    logging.info('Bot: '+decoded_output)
+        # generated a response while limiting the total chat history to 1000 tokens, 
+        #nth_output = model.generate(input_ids=bot_input_ids, do_sample=True)
+        nth_output = model.generate(input_ids=bot_input_ids,max_length=2048, do_sample=True, top_k=0, temperature=0.9)
+        
+        decoded_output = tokenizer.decode(nth_output[0][cur_length:]).replace(tokenizer.eos_token,'')
 
-    # print("{}".format(len(nth_output[0]),decoded_output))
-    print("{}".format(decoded_output))
-    sys.stdout.flush()
+        print("{}".format(decoded_output))
+        sys.stdout.flush()
 
 

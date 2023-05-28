@@ -1,0 +1,106 @@
+--- trainer.py	2023-05-25 03:34:51
++++ trainer_lablocal.py	2023-05-25 03:38:09
+@@ -1,4 +1,6 @@
+ import glob
++import io
++import json
+ import logging
+ import os
+ import pickle
+@@ -12,6 +14,7 @@
+ import numpy as np
+ import torch
+ import bitsandbytes as bnb
++import matplotlib.pyplot as plt
+ import torch.nn.functional as F
+ 
+ from datasets import *
+@@ -25,6 +28,9 @@
+ from tqdm import tqdm, trange
+ import gc
+ 
++# For Reporting to Telegram
++import requests
++
+ from pathlib import Path
+ 
+ from transformers import (
+@@ -128,9 +134,50 @@
+             summwritter.add_scalar(k,v[-1],epoch)
+ 
+     
++def send_plot(x,y,message_id):
++    """
++    Prepared data should be json which includes at least `chat_id` and `plot_file`
++    """
++    plt.plot(x,y)
++    img = io.BytesIO()
++    plt.title('Average Loss')
++    plt.savefig(img,format='png')
++    img.seek(0)
+ 
++    # Update
++    if message_id!='':
++        url = 'https://api.telegram.org/bot'+os.environ['TTOKEN']+'/editMessageMedia'
++        data = {'chat_id', int(os.environ['TUSER'])}
++        message_url = 'https://api.telegram.org/bot'+os.environ['TTOKEN']+'/editMessageMedia'
++        files = {'photo':('avg_loss.png',img.getvalue())}
++        data = {
++                "chat_id": int(os.environ['TUSER']),
++                "message_id": message_id,
++                "media": json.dumps({
++                    "type": "photo",
++                    "media": 'attach://photo',
++                    "caption": 'Average Loss for Epoch '+str(len(x)),
++                })
++            }
++    else:
++        message_url = 'https://api.telegram.org/bot'+os.environ['TTOKEN']+'/sendPhoto'
++        files = {'photo':('avg_loss.png',img.getvalue())}
++        data = {'chat_id':int(os.environ['TUSER']),'caption':'Avg_loss'}
++
++    response = requests.post(message_url,files=files, data=data)
++    plt.clf()
++    if response.status_code == 200:
++        message_id = response.json()['result']['message_id']
++    else:
++        print('Error sending message:', response.text)
++
++    return message_id
++
++
+ def train(args, dataset: BinaryFeedbackDataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int,float]:
+ 
++    tel_message_id = ''
++
+     def collate(examples: List[torch.Tensor]):
+         logger.info("Size of examples here is :"+str(len(examples)))
+         gcombos,bcombos = [],[]
+@@ -239,6 +286,7 @@
+ 
+     logger.info("We will do savings per batch : {}".format(int(0.1*(dataset.len()/args.batch_size_per_gpu))))
+ 
++    sent_plot = None
+     for _ in train_iterator:
+         within_epoch_iterator = tqdm(train_dataloader, initial=tinfo['saved_step'],desc="Iteration", leave=False)
+         step = 0
+@@ -319,8 +367,19 @@
+             tinfo['saved_step'] +=1
+             step += 1
+             ### END OF BATCH ##
++            ## Some Post-Processing of the Step Here:
++
+             write_to_tensorboard(tb_writer,tinfo, step)
++            # Send Data For Monitoring
++            if tinfo['global_step'] % 2:
++                tel_message_id = send_plot(
++                        np.arange(len(tinfo['avg_loss'])),
++                        np.array(tinfo['avg_loss']),
++                        tel_message_id)
+ 
++
++
++            # Save Checkpoint
+             if tinfo['global_step'] % int(0.1*(dataset.len()/args.batch_size_per_gpu)) == 0:
+                 save_checkpoint(model, optimizer,args,tinfo)
+ 
